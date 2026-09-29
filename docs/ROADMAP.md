@@ -147,3 +147,27 @@ What is not measured, and why it cannot be from here:
 To close it: run those three commands on a machine with Docker Desktop, on macOS or on Windows,
 and send back the `passed N, failed M` line and any `FAIL` line verbatim. Nothing else is needed,
 and nothing that carries a token should travel.
+
+## Open: the provider axis is documented everywhere and tested nowhere
+
+The pluggability claim is the one part of the objective with no automated check behind it. A grep
+for `OLLAMA`, `api_mode` or `ollama.com` across `tests/` returns nothing, while the behaviour is
+described in `README.md`, `docs/adding-knowledge.md` and `docs/decisions.md`.
+
+What is actually known, as opposed to documented:
+
+* the whole stack runs with `SEDNA_OLLAMA_MODEL=glm-5.3:cloud` against Ollama cloud, through the
+  seed import, an ingest of one new source (94 -> 95) and the verification suite;
+* the mode is derived from the URL -- `openai` when it contains `ollama.com` or `/v1`, native
+  otherwise -- and the reranker has been exercised through the local path.
+
+What is not known: that the OpenAI-compatible mode composes a correct request, and that a
+provider which is unreachable or answers with the wrong shape produces an error a user can act
+on rather than a stack trace. Those are the two things that decide whether "point it at any
+OpenAI-compatible endpoint" is a promise or a hope.
+
+The test intended for it needs no cloud and no queue: a small recording server on the host, the
+provider pointed at it through `host.docker.internal` in both modes, and the captured request
+shape asserted -- path, `Authorization` header, body fields -- with the pipeline outcome
+explicitly out of scope, because a recording server cannot satisfy the compiler's schema and
+pretending otherwise would be the kind of check this repository has already learned to distrust.
