@@ -124,8 +124,29 @@ jobs:
           uname -m
           docker version --format 'server: {{.Server.Arch}}'
 
+      # The first run of this job failed at the build and the log is not readable without admin
+      # rights, so the job now says out loud what it has and what the compose file needs. The
+      # difference from the build that succeeds on the development machine was the .env file the
+      # compose file reads: a checkout has none, and the variables it interpolates are not all
+      # defaulted.
+      - name: Prepare what the compose file reads
+        working-directory: compose
+        env:
+          DSH_PORT: "13080"
+          HINDSIGHT_PORT: "19177"
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+        run: |
+          cp .env.example .env
+          df -h / | tail -1
+          free -m | head -2
+          nproc
+
       - name: Build the DSH image here
         working-directory: compose
+        env:
+          DSH_PORT: "13080"
+          HINDSIGHT_PORT: "19177"
+          POSTGRES_PASSWORD: ci-only-not-a-secret
         run: docker compose build dsh
 
       - name: The engine, on arm64, against a knowledge base
