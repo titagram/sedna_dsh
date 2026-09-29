@@ -14,9 +14,15 @@ the knowledge base itself.
 
 Still open on that path:
 
-* **The stack itself is written** (`compose/`, validated by `docker compose config` on both
-  profiles) but has never been started on a host that has nothing: that is the next proof, and
-  the one this repository keeps promising in its README.
+* **The stack runs.** It has been brought up and verified end to end on this machine — eight
+  checks in `compose/verify.sh`, including a real retrieval through the engine's four lanes —
+  and three problems found only by starting it are now fixed in the image: a global npm install
+  cannot resolve DSH's bundles (they need one flat `node_modules`, reproduced from a pinned
+  lock), the build now refuses to ship an image whose composition names a file it does not
+  contain, and the bridge's config has to point at the container's paths or every `sedna_*`
+  tool is inert. What is still unproven is the promise itself: **macOS, Windows and arm64 have
+  never been started**, and neither has a machine with no images pre-pulled. The manifests are
+  multi-arch and nothing in the compose is Linux-specific, but that is an argument, not a test.
 * **The provider matrix.** One place where the operator picks a provider, mapped to whatever
   each component calls it, with the components that need a model (the harness, Hindsight
   extraction, Sedna ingest, embeddings) configured together so they cannot disagree. The

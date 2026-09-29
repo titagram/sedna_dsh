@@ -1,0 +1,8 @@
+{
+  "_comment": "The bridge's config inside the container. Unlike a host install, these paths are not machine-specific: they are fixed by the image, which is why this filled-in copy is committed rather than generated. The host installer writes its own (mode 0600) because there the paths depend on where the user put things.",
+  "python": "/opt/sedna/venv/bin/python",
+  "driver": "/opt/sedna/driver.py",
+  "sednaSrc": "/opt/sedna-engine/src",
+  "knowledgeRoot": "/data/kb",
+  "timeoutMs": 120000
+}

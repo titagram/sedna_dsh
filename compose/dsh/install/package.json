@@ -1,0 +1,8 @@
+{
+  "name": "dsh-install",
+  "private": true,
+  "comment": "The one dependency this stack needs, with the whole tree pinned beside it in package-lock.json. See compose/dsh/Dockerfile for why a floating prerelease range cannot be used here.",
+  "dependencies": {
+    "@deepseek-ai/dsh": "^0.1.5-rc.2"
+  }
+}

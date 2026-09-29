@@ -22,6 +22,23 @@ Then, once, to put the seeded memories into the bank:
 That is the whole install. No Node, Python, bash version or service manager on the host: the
 images carry their own, and `--no-open` means nothing tries to launch a browser.
 
+`./seed-bank.sh` takes a while the first time — it re-embeds every memory with *your* embedding
+model rather than copying vectors built elsewhere, which is also why changing that model later
+is recoverable: export the bank, then import it again.
+
+## Does it actually work
+
+```sh
+./verify.sh
+```
+
+Eight checks, and they are the difference between "the containers are up" and "the thing
+works": each service's health, the memory API answering, the knowledge base's canonical sources
+*and* whether its index needs rebuilding, a real retrieval through the four lanes the engine
+returns, and the web GUI both refusing an unauthenticated request and accepting the token it
+printed. The failures this catches are the silent ones: an unindexed base answers every question
+with the same convincing nothing, and the retrieval check is the only one that notices.
+
 ## What runs, and what survives a restart
 
 | service | what it is | port (host) |

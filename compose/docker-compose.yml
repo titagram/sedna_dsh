@@ -42,6 +42,8 @@ services:
       # read up on pg0) but then the persistent path is the image's business, not this file's.
       HINDSIGHT_API_DATABASE_URL: postgresql://${POSTGRES_USER:-hindsight}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-hindsight}
       HINDSIGHT_API_HOST: 0.0.0.0
+      # Without this Hindsight warns that background work (consolidation) is not claimed.
+      HINDSIGHT_API_WORKER_ID: ${WORKER_ID:-sedna-stack-1}
       HINDSIGHT_API_PORT: "8888"
       # The provider axis. One choice, made in .env, for the whole stack.
       HINDSIGHT_API_LLM_PROVIDER: ${LLM_PROVIDER:-none}
@@ -95,7 +97,7 @@ services:
       - path: .env
         required: false
     environment:
-      DSH_HOME: /home/dsh/.dsh
+      DSH_HOME: /home/node/.dsh
       DSH_TELEMETRY_DISABLED: "1"
       # The knowledge base is a volume; the seed is read-only input to it.
       SEDNA_KB_ROOT: /data/kb
@@ -114,7 +116,7 @@ services:
     ports:
       - "127.0.0.1:${DSH_PORT:-3080}:3080"
     volumes:
-      - dshhome:/home/dsh/.dsh
+      - dshhome:/home/node/.dsh
       - kb:/data/kb
       - ${SEED_DIR:-../seed}:/seed:ro
       - ${WORKSPACE_DIR:-..}:/workspace
