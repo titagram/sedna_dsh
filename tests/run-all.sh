@@ -28,6 +28,8 @@ run "the seed manifest"             python3 tools/verify-manifest.py seed
 run "the seed's knowledge base works" bash tests/test_seed_kb_audit.sh
 # The host is not Linux: this catches what only a hand audit found twice.
 run "host-script portability"      bash tests/test_portability.sh
+# The tree is gated by verify-seed; the history is what gets published.
+run "the published history"        bash tests/test_history_clean.sh
 # The stack's own scripts are checked here too: they run inside containers on every start, so a
 # syntax error in them is a restart loop for the user, and nothing else in this suite would see it.
 run "shell and python syntax"       bash -c 'bash -n install.sh && for f in tools/*.sh tests/*.sh compose/*.sh compose/dsh/*.sh; do bash -n "$f"; done && python3 -m py_compile tools/*.py compose/backup/*.py && echo "syntax ok"'
