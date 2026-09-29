@@ -53,6 +53,15 @@ Still open on that path:
   containers is a documentation job with a clear finish line, and it is the last file in the
   repository that describes the stack that was replaced.
 
+* **arm64 can be proven on this machine; macOS and Windows cannot.** The images are multi-arch
+  (Hindsight, pgvector and the Node base all publish arm64), so `docker run --privileged --rm
+  tonistiigi/binfmt --install arm64` plus `DOCKER_DEFAULT_PLATFORM=linux/arm64` would boot the
+  stack emulated and answer the question "does it run on arm64" without a Mac. It proves the
+  *images and the composition*, not Docker Desktop on macOS or Windows, which remain the only
+  claims in the README that rest on an argument rather than a measurement. The DSH image build
+  under emulation is slow and the seed import would be glacial: the target is "pulls, boots,
+  serves `/health`, the GUI answers", not a full ingest.
+
 ## Defects a user meets
 
 * **The shipped bridge skill describes the author's machine.** `lib/40-plugin.sh` copies
