@@ -38,13 +38,13 @@ Still open on that path:
   is quarantined *silently*), and a quarantined source must be reported loudly with a reason.
   The shape is an inbox directory with a fixed layout, an ingest operation on the driver, and
   a report that says what happened to your file.
-* **The bank backup bucket.** The bank is too large for git and grows without bound. The
-  design slot exists; the implementation comes later. The interface is deliberately
-  S3-compatible, because that is the one shape every provider can present (R2 and B2 expose
-  it), and the way to know the path works is to exercise it against a real endpoint — a MinIO
-  container on the development server — rather than to write it and hope.
-* **Restore on a fresh machine from the bucket alone.** Untested by definition until the
-  bucket exists.
+* **The bank backup bucket is implemented** (`compose/backup/bank-backup.py`, profile `backup`):
+  export, upload, prune, list and restore, exercised end to end against a real S3 gateway —
+  bucket created by the script, a 4.1 MiB archive uploaded, listed, downloaded and importing
+  into a second bank. It is deliberately S3-shaped, because that is the one interface every
+  provider can present. What is *not* proven: a restore completed on a fresh machine, and the
+  schedule — a sleeping loop in a container, not something the operating system owns. A cron
+  on the host calling `backup once` would be the honest production shape.
 
 ## Defects a user meets
 

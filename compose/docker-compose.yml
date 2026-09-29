@@ -9,6 +9,36 @@
 # anyone who can reach the port.
 name: sedna-stack
 
+# The Hindsight instance's identity, written once and shared: the database, the provider
+# axis, embeddings and reranker. Two services need it -- the API and the backup, because
+# an import re-embeds -- and if they could disagree, a restore would embed with a model
+# the bank was not built for. HINDSIGHT_API_WORKER_ID stays out on purpose: it names a
+# *process* claiming background work, and two containers sharing one is a bug.
+x-hindsight-env: &hindsight-env
+  # Points at the postgres above. An embedded database is possible (leave this unset and
+  # read up on pg0) but then the persistent path is the image's business, not this file's.
+  HINDSIGHT_API_DATABASE_URL: postgresql://${POSTGRES_USER:-hindsight}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-hindsight}
+  HINDSIGHT_API_HOST: 0.0.0.0
+  # Without this Hindsight warns that background work (consolidation) is not claimed.
+  HINDSIGHT_API_PORT: "8888"
+  # The provider axis. One choice, made in .env, for the whole stack.
+  HINDSIGHT_API_LLM_PROVIDER: ${LLM_PROVIDER:-none}
+  HINDSIGHT_API_LLM_BASE_URL: ${LLM_BASE_URL:-}
+  HINDSIGHT_API_LLM_API_KEY: ${LLM_API_KEY:-}
+  HINDSIGHT_API_LLM_MODEL: ${LLM_MODEL:-}
+  HINDSIGHT_API_EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-onnx}
+  HINDSIGHT_API_EMBEDDINGS_ONNX_MODEL_ID: ${EMBEDDINGS_ONNX_MODEL_ID:-intfloat/multilingual-e5-small}
+  HINDSIGHT_API_EMBEDDINGS_ONNX_DIMENSIONS: ${EMBEDDINGS_ONNX_DIMENSIONS:-384}
+  HINDSIGHT_API_EMBEDDINGS_TEI_URL: ${EMBEDDINGS_TEI_URL:-http://tei:80}
+  HINDSIGHT_API_EMBEDDINGS_OPENAI_API_KEY: ${EMBEDDINGS_API_KEY:-}
+  HINDSIGHT_API_EMBEDDINGS_OPENAI_MODEL: ${EMBEDDINGS_OPENAI_MODEL:-text-embedding-3-small}
+  HINDSIGHT_API_EMBEDDINGS_LOCAL_MODEL: ${EMBEDDINGS_LOCAL_MODEL:-intfloat/multilingual-e5-small}
+  HINDSIGHT_API_EMBEDDINGS_LOCAL_FORCE_CPU: ${EMBEDDINGS_LOCAL_FORCE_CPU:-true}
+  # Kept local by default: the machine that runs this is powerful enough, and moving to a
+  # lighter reranker is a one-line change for somebody who is not (see compose/README.md).
+  HINDSIGHT_API_RERANKER_PROVIDER: ${RERANKER_PROVIDER:-local}
+  HINDSIGHT_API_RERANKER_LOCAL_MODEL: ${RERANKER_LOCAL_MODEL:-BAAI/bge-reranker-v2-m3}
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -38,30 +68,8 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      # Points at the postgres above. An embedded database is possible (leave this unset and
-      # read up on pg0) but then the persistent path is the image's business, not this file's.
-      HINDSIGHT_API_DATABASE_URL: postgresql://${POSTGRES_USER:-hindsight}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-hindsight}
-      HINDSIGHT_API_HOST: 0.0.0.0
-      # Without this Hindsight warns that background work (consolidation) is not claimed.
+      <<: *hindsight-env
       HINDSIGHT_API_WORKER_ID: ${WORKER_ID:-sedna-stack-1}
-      HINDSIGHT_API_PORT: "8888"
-      # The provider axis. One choice, made in .env, for the whole stack.
-      HINDSIGHT_API_LLM_PROVIDER: ${LLM_PROVIDER:-none}
-      HINDSIGHT_API_LLM_BASE_URL: ${LLM_BASE_URL:-}
-      HINDSIGHT_API_LLM_API_KEY: ${LLM_API_KEY:-}
-      HINDSIGHT_API_LLM_MODEL: ${LLM_MODEL:-}
-      HINDSIGHT_API_EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-onnx}
-      HINDSIGHT_API_EMBEDDINGS_ONNX_MODEL_ID: ${EMBEDDINGS_ONNX_MODEL_ID:-intfloat/multilingual-e5-small}
-      HINDSIGHT_API_EMBEDDINGS_ONNX_DIMENSIONS: ${EMBEDDINGS_ONNX_DIMENSIONS:-384}
-      HINDSIGHT_API_EMBEDDINGS_TEI_URL: ${EMBEDDINGS_TEI_URL:-http://tei:80}
-      HINDSIGHT_API_EMBEDDINGS_OPENAI_API_KEY: ${EMBEDDINGS_API_KEY:-}
-      HINDSIGHT_API_EMBEDDINGS_OPENAI_MODEL: ${EMBEDDINGS_OPENAI_MODEL:-text-embedding-3-small}
-      HINDSIGHT_API_EMBEDDINGS_LOCAL_MODEL: ${EMBEDDINGS_LOCAL_MODEL:-intfloat/multilingual-e5-small}
-      HINDSIGHT_API_EMBEDDINGS_LOCAL_FORCE_CPU: ${EMBEDDINGS_LOCAL_FORCE_CPU:-true}
-      # Kept local by default: the machine that runs this is powerful enough, and moving to a
-      # lighter reranker is a one-line change for somebody who is not (see compose/README.md).
-      HINDSIGHT_API_RERANKER_PROVIDER: ${RERANKER_PROVIDER:-local}
-      HINDSIGHT_API_RERANKER_LOCAL_MODEL: ${RERANKER_LOCAL_MODEL:-BAAI/bge-reranker-v2-m3}
     ports:
       - "127.0.0.1:${HINDSIGHT_PORT:-9177}:8888"
     volumes:
@@ -122,6 +130,71 @@ services:
       - ${WORKSPACE_DIR:-..}:/workspace
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    security_opt:
+      - no-new-privileges:true
+
+  backup:
+    # Off unless asked for:  docker compose --profile backup up -d
+    #
+    # It runs the *Hindsight* image rather than a sidecar with its own S3 client, because
+    # `hindsight-admin export-bank` is the tool that produces an archive the restore path can
+    # consume, and that image already carries boto3. One process, one dependency, none added.
+    profiles: ["backup"]
+    image: ${HINDSIGHT_IMAGE:-ghcr.io/vectorize-io/hindsight:0.9.2}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["/app/api/.venv/bin/python", "/opt/backup/bank-backup.py"]
+    command: ["loop"]
+    environment:
+      # The same instance identity as the API: a restore re-embeds, so it must embed the way
+      # this bank expects. Inherited rather than repeated, so the two cannot drift apart.
+      <<: *hindsight-env
+      BANK: ${BANK:-hermes}
+      BUCKET_NAME: ${BUCKET_NAME:-}
+      BUCKET_PREFIX: ${BUCKET_PREFIX:-hindsight}
+      BUCKET_ENDPOINT: ${BUCKET_ENDPOINT:-}
+      BUCKET_REGION: ${BUCKET_REGION:-us-east-1}
+      # Secrets, from compose/.env, which is gitignored exactly because of these two.
+      BUCKET_ACCESS_KEY: ${BUCKET_ACCESS_KEY:-}
+      BUCKET_SECRET_KEY: ${BUCKET_SECRET_KEY:-}
+      # `path` is what MinIO and most self-hosted gateways need; `auto` suits AWS and R2.
+      BUCKET_PATH_STYLE: ${BUCKET_PATH_STYLE:-auto}
+      BACKUP_INTERVAL: ${BACKUP_INTERVAL:-86400}
+      BACKUP_KEEP: ${BACKUP_KEEP:-7}
+    volumes:
+      - ./backup/bank-backup.py:/opt/backup/bank-backup.py:ro
+    extra_hosts:
+      # So a bucket served on the host (or the `s3test` profile below) is reachable.
+      - "host.docker.internal:host-gateway"
+    security_opt:
+      - no-new-privileges:true
+
+  s3test:
+    # A throwaway S3 endpoint, so the backup path can be proven end to end without a cloud
+    # account:  docker compose --profile s3test up -d
+    #
+    # Then in .env:  BUCKET_ENDPOINT=http://s3test:8333
+    #                BUCKET_ACCESS_KEY=akid  BUCKET_SECRET_KEY=secretkey
+    #                BUCKET_PATH_STYLE=path
+    #
+    # rclone serves the S3 protocol out of memory, so nothing survives a restart. That is the
+    # point: it is a test double, not storage. MinIO is the more familiar choice for this and
+    # is what we tried first, but its Docker Hub repository is no longer pullable, and a
+    # service in this file that cannot be pulled is worse than no service at all.
+    profiles: ["s3test"]
+    image: ${S3TEST_IMAGE:-rclone/rclone:latest}
+    command:
+      - "serve"
+      - "s3"
+      - "--auth-key"
+      - "${BUCKET_ACCESS_KEY:-akid},${BUCKET_SECRET_KEY:-secretkey}"
+      - "--addr"
+      - ":8333"
+      - ":memory:"
+    ports:
+      - "127.0.0.1:${S3TEST_PORT:-19000}:8333"
     security_opt:
       - no-new-privileges:true
 

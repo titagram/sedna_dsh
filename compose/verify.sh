@@ -113,6 +113,20 @@ if [[ -n "$dsh_port" ]]; then
     fi
 fi
 
+echo "== off-machine backup"
+bucket="${BUCKET_NAME:-$(grep -E '^BUCKET_NAME=' .env 2>/dev/null | cut -d= -f2-)}"
+if [[ -z "${bucket:-}" ]]; then
+    info "no bucket configured: the bank exists only on this machine"
+else
+    listing="$("${DC[@]}" --profile backup run --rm -T backup list 2>/dev/null | grep 'MiB' || true)"
+    newest="$(printf '%s\n' "$listing" | tail -1)"
+    if [[ -n "$newest" ]]; then
+        ok "bucket '$bucket' has $(printf '%s\n' "$listing" | grep -c 'MiB') archive(s); newest: $newest"
+    else
+        bad "bucket '$bucket' is configured but no archive is readable in it"
+    fi
+fi
+
 echo
 printf 'passed %d, failed %d\n' "$pass" "$fail"
 [[ "$fail" == 0 ]]

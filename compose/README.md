@@ -113,13 +113,42 @@ interface, are in `docs/adding-knowledge.md`.
 
 ## Backing up
 
-Not wired to a bucket yet — the design slot is in `.env.example` and the work is tracked in
-`docs/ROADMAP.md`. What exists today:
+The bank grows without bound and does not belong in git, so it is exported as a portable
+archive and pushed to any S3-compatible bucket you supply. Configure it in `.env` and start
+the service:
 
 ```sh
-docker compose exec hindsight /app/api/.venv/bin/hindsight-admin export-bank \
-    --bank hermes --output /tmp/bank.zip     # then copy it somewhere that is not this machine
+docker compose --profile backup up -d
+docker compose --profile backup run --rm backup list      # what is in the bucket
+docker compose --profile backup run --rm backup once      # one backup now, then exit
+docker compose --profile backup run --rm backup restore   # import the newest archive back
 ```
+
+The archive is produced by `hindsight-admin export-bank`, which carries the documents, facts,
+bank config, mental models and directives but **no embeddings** — those are regenerated on
+import. That is why the file is small, why it survives a change of embedding model or
+Hindsight version, and why a restore re-embeds (expect it to take as long as the first seed).
+
+Point it at your provider with the `BUCKET_*` block in `.env`: Cloudflare R2, Backblaze B2,
+Wasabi and AWS S3 all speak this, with `BUCKET_PATH_STYLE=auto`; MinIO-style self-hosted
+gateways want `path`.
+
+### Testing the backup without a cloud account
+
+```sh
+docker compose --profile s3test up -d      # a throwaway S3 endpoint, served by rclone
+```
+and in `.env`:
+```sh
+BUCKET_ENDPOINT=http://s3test:8333
+BUCKET_ACCESS_KEY=akid
+BUCKET_SECRET_KEY=secretkey
+BUCKET_PATH_STYLE=path
+```
+Its storage is memory, so nothing survives a restart. That is deliberate: it exists to prove
+the path works before you hand it a bucket you care about. (MinIO would be the obvious choice
+here and we tried it first; its Docker Hub repository is no longer pullable, and a service in
+this file that cannot be pulled is worse than none.)
 
 ## Before you change the ports
 
