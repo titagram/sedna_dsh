@@ -171,3 +171,25 @@ provider pointed at it through `host.docker.internal` in both modes, and the cap
 shape asserted -- path, `Authorization` header, body fields -- with the pipeline outcome
 explicitly out of scope, because a recording server cannot satisfy the compiler's schema and
 pretending otherwise would be the kind of check this repository has already learned to distrust.
+
+## Two corrections and one defect, all measured
+
+**The macOS queue was not hours long.** Three rounds of narration described the CI jobs as "queued
+for hours"; the run timestamps show four runs created within two minutes of each other, with the
+newest already executing. The queue is genuinely slow to schedule -- GitHub annotates that macOS
+runners are capacity constrained -- but the "hours" was produced by counting my own rounds instead
+of reading a clock. Adding `concurrency: cancel-in-progress` is right and stays, because a workflow
+should not verify commits nobody is looking at; it was not, however, the cause of a long block.
+
+**A queued job holds the run open**, so both macOS jobs are now bounded (20 and 40 minutes). Before
+that, a congested pool could expire a job and turn the workflow red for a reason unrelated to the
+commit, which teaches people to ignore a red workflow.
+
+**`foundation_quarantined` arrives with `reason_codes: []`.** Measured, twice, on two different
+files. `docs/adding-knowledge.md` states that a quarantined source "must be reported loudly, with
+the reason", and the `failed` disposition does exactly that -- the provider probe gets
+`missing_parsed_response` when a recording server answers with prose. So the contract is honoured
+for one disposition and not for the other, and the difference matters most in the case a user is
+most likely to hit: a correctly-formed file in the wrong place. The gate's condition is worth
+finding anyway -- the disposition string is not in site-packages -- and the reason code should come
+with it.
