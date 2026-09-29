@@ -55,4 +55,9 @@ fi
 
 log "starting DSH; the authenticated URL is printed in these logs (it carries a one-time token)"
 # --no-open: there is no browser in a container, and the token URL is in the log instead.
-exec dsh web --no-open --port "${DSH_PORT:-3080}"
+# 3080 is the *container* port, and it is not DSH_PORT: docker-compose.yml publishes
+# "127.0.0.1:${DSH_PORT:-3080}:3080", so DSH_PORT is the host side and 3080 the inside. Reading
+# DSH_PORT here made the two sides diverge as soon as the operator chose another port -- the
+# port collision case install.sh --port exists for -- and the GUI became unreachable while the
+# stack still looked healthy. Keep this number equal to the container side of the mapping.
+exec dsh web --no-open --port 3080

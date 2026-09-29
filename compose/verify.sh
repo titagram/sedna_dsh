@@ -41,8 +41,12 @@ fi
 
 echo "== the knowledge base inside the container"
 out="$("${DC[@]}" exec -T dsh /opt/sedna/venv/bin/python /opt/sedna/driver.py <<<'{"op":"maintenance","args":{"operation":"audit"}}' 2>&1)"
-report="$(python3 - "$out" <<'PY' 2>/dev/null
-import json,sys
+# Parsed by the container's Python, never the host's. python3 is not a given on macOS (it needs
+# the Xcode command line tools) and is usually absent from Git Bash on Windows -- the two
+# platforms this stack claims to run on. This script is what a user runs to check that claim,
+# so it must not fail there for a reason that has nothing to do with the stack. The image has
+# Python by construction; the host is not asked for anything but Docker.
+AUDIT_PARSE='import json,sys
 raw=sys.argv[1] if len(sys.argv)>1 else ""
 try:
     d=json.loads(raw)
@@ -52,9 +56,8 @@ except Exception:
     try: d=json.loads(raw[start:]) if start>=0 else {}
     except Exception: d={}
 r=(d.get("data") or {}).get("report") or {}
-print(f"{r.get('succeeded')} {r.get('canonical_source_count')} {r.get('rebuild_required')}")
-PY
-)"
+print("%s %s %s" % (r.get("succeeded"), r.get("canonical_source_count"), r.get("rebuild_required")))'
+report="$("${DC[@]}" exec -T dsh /opt/sedna/venv/bin/python -c "$AUDIT_PARSE" "$out" 2>/dev/null)"
 set -- $report
 if [[ "${1:-}" == "True" ]]; then
     ok "audit: succeeded, ${2:-0} canonical source(s), rebuild_required=${3:-?}"
@@ -64,22 +67,19 @@ else
 fi
 
 lane="$("${DC[@]}" exec -T dsh /opt/sedna/venv/bin/python /opt/sedna/driver.py <<<'{"op":"retrieve","args":{"target":"10.10.14.5","authorization_state":"authorized","exact_targets":["10.10.14.5"],"query_terms":["privilege escalation"]}}' 2>&1)"
-summary="$(python3 - "$lane" <<'PY' 2>/dev/null
-import json,sys
+# The four lanes sit directly on `data`, each a list; `knowledge_gap` is the engine saying out
+# loud that the base has nothing on this subject, which is not the same as a bad query.
+LANE_PARSE='import json,sys
 raw=sys.argv[1] if len(sys.argv)>1 else ""
 start=raw.find("{")
 try: d=json.loads(raw[start:]) if start>=0 else {}
 except Exception: d={}
 data=d.get("data") or {}
-# The four lanes sit directly on `data`, each a list; `knowledge_gap` is the engine saying out
-# loud that the base has nothing on this subject, which is not the same as a bad query.
-lanes = {k: len(data.get(k) or []) for k in
-         ("references", "case_steps", "negative_cases", "decision_guidance")}
+lanes = {k: len(data.get(k) or []) for k in ("references", "case_steps", "negative_cases", "decision_guidance")}
 total = sum(lanes.values())
 gap = "no" if data.get("knowledge_gap") is None else "yes"
-print("%d|%d|%d|%d|%d|%s" % (total, lanes["references"], lanes["case_steps"], lanes["negative_cases"], lanes["decision_guidance"], gap))
-PY
-)"
+print("%d|%d|%d|%d|%d|%s" % (total, lanes["references"], lanes["case_steps"], lanes["negative_cases"], lanes["decision_guidance"], gap))'
+summary="$("${DC[@]}" exec -T dsh /opt/sedna/venv/bin/python -c "$LANE_PARSE" "$lane" 2>/dev/null)"
 IFS='|' read -r count r c n g gap <<<"$summary"
 if [[ "${count:-0}" -gt 0 ]]; then
     ok "retrieval: $count candidate(s) -- $r references, $c case steps, $n negative, $g guidance (gap: ${gap:-?})"
