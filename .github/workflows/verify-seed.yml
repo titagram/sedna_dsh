@@ -51,6 +51,10 @@ jobs:
   # instead of argued -- which is the difference this repository has been paying attention to.
   host:
     name: host scripts on ${{ matrix.os }}
+    # A queued job holds the whole run open and GitHub eventually expires it, which would turn
+    # this workflow red for a reason that has nothing to do with the commit. Bounded, so a
+    # congested macOS pool produces a fast honest failure instead of a day-long hang.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -209,6 +213,7 @@ jobs:
     # every macOS measurement in this repository so far is arm64. The macOS-specific
     # behaviour here is file sharing and bind mounts, which is the same question on both.
     runs-on: macos-13
+    timeout-minutes: 40
     # An experiment, aimed at the one claim this repository still cannot measure: the container
     # layer on macOS. Non-blocking on purpose -- a red job here must not make the verified state
     # look broken while the approach is still being found.
