@@ -42,6 +42,7 @@ Ubuntu, user `titagram`) on 2026-09-29.
 
 | Part | State | Evidence |
 |---|---|---|
+| Runs on arm64 | **verified (emulated)** | The DSH image builds for arm64 and its own boot gate reports "DSH boots with the sedna-bridge row mounted"; `/bin/sh` inside the container is an ELF AArch64 binary (`b7`) and Node's `process.arch` says `arm64`; PostgreSQL and Hindsight run as arm64 containers and `/health` answers 200; the engine audits 94 canonical sources, rebuilds the 675-artifact index in 211 s and retrieves in all four lanes. Not macOS or Windows: those remain argued, not measured |
 | Seed redaction + fail-closed gate | **verified** | `tests/test_scan_secrets.sh` (24 assertions, includes real-data scans) |
 | Hindsight bank seed | **verified** | `hindsight-admin export-bank` → 8.9 MB, 864 documents, 13 766 facts, 8 961 observations, 7 mental models, 8 knowledge pages; 12 secret-shaped literals redacted, 0 left |
 | Sedna KB seed | **verified** | 95 canonical bundles, 6.0 MB → 577 KB packed, 0 findings |
