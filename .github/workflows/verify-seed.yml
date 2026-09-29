@@ -151,18 +151,36 @@ jobs:
 
       - name: The engine, on arm64, against a knowledge base
         run: |
-          set -euo pipefail
+          set -uo pipefail
+
+          # The job's log is unreadable without admin rights, so a failure is published through a
+          # channel that is not: the annotation API, which the ::error:: lines below feed. A check
+          # nobody can read the output of is a check that reports "failed" and nothing else.
+          dump() {
+            for f in "$@"; do
+              [ -f "$f" ] || continue
+              head -c 300 "$f" | tr -d '\r' | sed "s|^|::error::$(basename "$f"): |"
+            done
+          }
+
           mkdir -p /tmp/kb
           tar xzf seed/sedna-kb.tar.gz -C /tmp/kb
           chmod 700 /tmp/kb
+
+          # The engine validates that 700 by equality, so the container must run as the user that
+          # owns the directory. Locally that matched by accident -- both uid 1000 -- and on the
+          # runner it does not: the checkout is owned by 1001 while the image runs as node. This
+          # step failed on the first run for exactly that, which is why --user is here.
           run_op() {
-            docker run --rm -i -v /tmp/kb:/data/kb --entrypoint /opt/sedna/venv/bin/python \
-              sedna-stack-dsh:latest /opt/sedna/driver.py
+            docker run --rm -i --user "$(id -u):$(id -g)" -v /tmp/kb:/data/kb \
+              --entrypoint /opt/sedna/venv/bin/python sedna-stack-dsh:latest /opt/sedna/driver.py
           }
-          echo '{"op":"maintenance","args":{"operation":"audit"}}'    | run_op > /tmp/audit.json
-          echo '{"op":"maintenance","args":{"operation":"rebuild"}}'  | run_op > /tmp/rebuild.json
-          echo '{"op":"retrieve","args":{"target":"10.10.14.5","authorization_state":"authorized","exact_targets":["10.10.14.5"],"query_terms":["privilege escalation"]}}' | run_op > /tmp/retrieve.json
-          python3 - <<'PY'
+
+          echo '{"op":"maintenance","args":{"operation":"audit"}}'   | run_op > /tmp/audit.json   || { dump /tmp/audit.json;   exit 1; }
+          echo '{"op":"maintenance","args":{"operation":"rebuild"}}' | run_op > /tmp/rebuild.json || { dump /tmp/rebuild.json; exit 1; }
+          echo '{"op":"retrieve","args":{"target":"10.10.14.5","authorization_state":"authorized","exact_targets":["10.10.14.5"],"query_terms":["privilege escalation"]}}' | run_op > /tmp/retrieve.json || { dump /tmp/retrieve.json; exit 1; }
+
+          python3 - <<'PY' || { dump /tmp/audit.json /tmp/rebuild.json /tmp/retrieve.json; exit 1; }
           import json
           audit   = json.load(open("/tmp/audit.json"))["data"]["report"]
           rebuild = json.load(open("/tmp/rebuild.json"))["data"]["report"]
