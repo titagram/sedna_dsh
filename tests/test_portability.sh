@@ -52,6 +52,13 @@ patterns=(
     'sort -V'
     'mktemp -p'
     'getopt '
+    # macOS ships bash 3.2.57 as /bin/bash and has not updated it since 2007, because the newer
+    # ones are GPLv3. So '#!/usr/bin/env bash' on a stock Mac is bash 3.2, and anything that
+    # arrived in bash 4 is a runtime failure there while passing on this Linux machine. These are
+    # the ones that are commands rather than syntax, which the 3.2 check below cannot see.
+    'declare -A|mapfile|readarray|coproc|local -n|wait -n'
+    '&>>|\|&'
+    '\$\{[A-Za-z_][A-Za-z0-9_]*(\^\^|,,)\}'
 )
 
 checked=0 skipped=0
@@ -88,6 +95,25 @@ for f in install.sh compose/verify.sh; do
     [ -f "$f" ] || continue
     head -1 "$f" | grep -qE '^#!.*bash' || { echo "  FAIL $f does not declare bash"; fail=1; }
 done
+
+# The syntax a stock Mac can parse. The version is not incidental -- see above -- and a syntax
+# check sees what a pattern list cannot: quoting, parameter expansion, redirections. It runs in
+# a container because this machine's bash is 5 and the question is about somebody else's.
+echo "== the shell macOS ships"
+if docker image inspect bash:3.2 >/dev/null 2>&1 || docker pull -q bash:3.2 >/dev/null 2>&1; then
+    if docker run --rm -v "$PWD:/r:ro" bash:3.2 bash -c '
+        for f in /r/install.sh /r/compose/*.sh /r/tools/*.sh; do
+            [ -f "$f" ] || continue
+            bash -n "$f" || { echo "  FAIL $f"; exit 1; }
+        done'; then
+        echo "  ok   install.sh, compose/*.sh and tools/*.sh parse under bash 3.2.57"
+    else
+        echo "  FAIL a script does not parse under the bash macOS ships"
+        fail=1
+    fi
+else
+    echo "  skip bash 3.2 -- image unavailable, the syntax check did NOT run"
+fi
 
 if [ "$fail" -eq 0 ]; then
     echo "  ok   $checked host script(s) portable, $skipped container script(s) exempt"
