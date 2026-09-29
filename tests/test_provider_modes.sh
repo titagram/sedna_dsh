@@ -1,42 +1,23 @@
 #!/usr/bin/env bash
-# STATUS: incomplete, and deliberately not wired into tests/run-all.sh.
-#
-# It runs, it drives both provider modes through the real engine, and it does not yet assert
-# anything -- because the source it hands over is quarantined before any model is called. That is
-# not a failure of the probe: it is the engine's documented behaviour ("a source is classified by
-# its physical path", and the model is only called for a real run), and it is the reason a
-# quarantined file costs nothing. What is missing is a source whose path makes it a candidate.
-#
-# What the probe has already established, by running it:
-#   * the driver refuses a wrong argument with a message a user can act on
-#     ("ingest requires a source path inside the inbox"), not a stack trace;
-#   * the inbox is SEDNA_INBOX, default /inbox, and the argument is "source", absolute;
-#   * both /v1 and native mode reach the engine identically before any model call.
-#
-# Next, and the path hypothesis is now falsified: six candidate locations were tried -- the inbox
-# root, case_steps, references, negative_cases, decision_guidance and canonical/case_steps -- and
-# all six are quarantined identically, so classification is not what is missing here. What is
-# missing is whatever the foundation gate actually checks, and it reports no reason code while
-# refusing. Two leads, in order: the gate's condition (the disposition string is not in
-# site-packages, so look where it is composed) and whether a candidate must arrive with
-# front matter describing itself.
-#
-# The measurement that falsified the path hypothesis had two defects of its own -- a recorder
-# server that died on an undefined variable, and a label that printed a path it had not sent --
-# so its "no provider calls" figure proves nothing and is not being treated as evidence.
-#
-# Then: the two assertions -- an OpenAI-compatible request on /v1/chat/completions carrying
-# Authorization, and a native one on Ollama's own endpoint without it.
-#
 # "Point the stack at Ollama cloud, at any OpenAI-compatible endpoint, or at a local model" is one
-# environment variable and no adapter, according to three documents -- and until now nothing
-# checked it. This does, with no cloud, no key and no queue: a recording server on the host, the
-# provider pointed at it through host.docker.internal in both modes, and the captured request
-# shape asserted.
+# environment variable and no adapter. This checks it without a cloud, a key or a queue: a
+# recording server on the host, the engine driven through both modes via host.docker.internal,
+# and the request it sent asserted.
 #
-# Deliberately out of scope: whether the pipeline succeeds. A recording server cannot satisfy the
-# compiler's schema, so the engine is expected to report a failed extraction. Asserting on the
-# request the engine *sent* is the part that decides whether the promise is real.
+# Established by running it, and asserted below:
+#   * a URL containing /v1 takes the OpenAI-compatible path: POST /v1/chat/completions with
+#     Authorization: Bearer <key> and the model in the body;
+#   * a URL without /v1 takes Ollama's own path: POST /api/chat with no Authorization header.
+#
+# Out of scope on purpose: whether the pipeline succeeds. A recording server cannot satisfy the
+# compiler's schema, so the engine is expected to report a failed extraction -- and it does, with
+# a reason code. What decides whether the promise is real is the request it sent.
+#
+# The path and the content are part of the input: a source must sit under a corpus-family marker
+# (write-ups/machines/<machine>/<machine>.md) with at least two substantive headings and one code
+# block, or it is quarantined as foundation material and never reaches a model. That is documented
+# in docs/adding-knowledge.md, and finding it there after guessing six paths is written down here
+# so nobody repeats it.
 set -uo pipefail
 
 DOCKER=${DOCKER:-docker}
@@ -49,8 +30,8 @@ if ! "$DOCKER" image inspect "$IMAGE" >/dev/null 2>&1; then
 fi
 
 work=$(mktemp -d); trap 'rm -rf "$work"; [ -n "${rec_pid:-}" ] && kill "$rec_pid" 2>/dev/null' EXIT
-kb="$work/kb"; mkdir -p "$kb/inbox"; chmod 700 "$kb"
-cat > "$kb/inbox/probe.md" <<'DOC'
+kb="$work/kb"; mkdir -p "$kb/inbox/write-ups/machines/probe-box"; chmod 700 "$kb"
+cat > "$kb/inbox/write-ups/machines/probe-box/probe-box.md" <<'DOC'
 # Lab case: reaching a service account's key material from a web application
 
 ## Situation
@@ -72,6 +53,12 @@ account's home directory contained a configuration file with a key in plain text
    response differs from the expected error.
 3. Read a known, harmless file to confirm disclosure without touching credential material.
 4. Report the parameter and the depth, and stop -- the objective was the access, not the contents.
+
+The step that establishes disclosure, without touching anything sensitive:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' "http://target:8080/render?template=../../../../etc/hostname"
+```
 
 ## Why it worked
 
@@ -120,7 +107,7 @@ probe() {  # $1 = url, writes one ingest through the engine
     -e SEDNA_OLLAMA_MODEL=probe-model -e SEDNA_OLLAMA_TIMEOUT=20 \
     --entrypoint /opt/sedna/venv/bin/python "$IMAGE" /opt/sedna/driver.py \
     <<'JSON' 2>&1 | head -c 300
-{"op":"ingest","args":{"source":"/inbox/probe.md"}}
+{"op":"ingest","args":{"source":"/inbox/write-ups/machines/probe-box/probe-box.md"}}
 JSON
 }
 
@@ -130,5 +117,21 @@ echo ""
 echo "--- native Ollama endpoint (URL contains no /v1)"
 probe "http://host.docker.internal:$PORT"
 echo ""
-echo "--- what the provider actually sent:"
-cat "$work/requests.log" 2>/dev/null || echo "(nothing: the engine never called a provider)"
+python3 - "$work/requests.log" <<'PY'
+import json, sys
+
+rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+assert len(rows) == 2, "expected one request per mode, got %d: %s" % (len(rows), rows)
+
+openai_mode, native_mode = rows
+assert openai_mode["path"] == "/v1/chat/completions", openai_mode
+assert openai_mode["auth"] == "Bearer probe-key-not-a-secret", openai_mode
+assert openai_mode["has_model"], openai_mode
+
+assert native_mode["path"] == "/api/chat", native_mode
+assert not native_mode["auth"], native_mode
+assert native_mode["has_model"], native_mode
+
+print("provider modes ok: %s with Authorization, %s without"
+      % (openai_mode["path"], native_mode["path"]))
+PY

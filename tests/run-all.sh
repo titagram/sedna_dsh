@@ -28,6 +28,7 @@ run "the seed manifest"             python3 tools/verify-manifest.py seed
 run "the seed's knowledge base works" bash tests/test_seed_kb_audit.sh
 # The host is not Linux: this catches what only a hand audit found twice.
 run "host-script portability"      bash tests/test_portability.sh
+run "provider modes" bash tests/test_provider_modes.sh
 # The tree is gated by verify-seed; the history is what gets published.
 run "the published history"        bash tests/test_history_clean.sh
 # Everything else runs in the development tree; this one runs where the user starts.
