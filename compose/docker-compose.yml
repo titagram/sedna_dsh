@@ -213,6 +213,13 @@ services:
     # Embeddings are the one thing Ollama Cloud cannot serve (its /v1/embeddings answers 404
     # and Hindsight has no `ollama` embeddings provider). This is a service, not a chat model.
     profiles: ["tei"]
+    # Upstream publishes no arm64 manifest for this tag, so on an Apple Silicon Mac or an arm64
+    # server `--profile tei up` fails outright with "no matching manifest for linux/arm64" --
+    # a refusal, not a slow start. Pinning the platform makes Docker run the amd64 image
+    # emulated instead, which works on Docker Desktop for Mac (Rosetta) and elsewhere (QEMU) at
+    # the cost of speed. It is a variable so an arm64 build can be used without emulation by
+    # setting both TEI_IMAGE and TEI_PLATFORM.
+    platform: ${TEI_PLATFORM:-linux/amd64}
     image: ${TEI_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.8}
     restart: unless-stopped
     command: ["--model-id", "${EMBEDDINGS_ONNX_MODEL_ID:-intfloat/multilingual-e5-small}"]
