@@ -147,7 +147,16 @@ jobs:
           DSH_PORT: "13080"
           HINDSIGHT_PORT: "19177"
           POSTGRES_PASSWORD: ci-only-not-a-secret
-        run: docker compose build dsh
+        run: |
+          # The log needs admin rights to read, so a failed build has to explain itself through a
+          # channel that does not. The arm64 job failed on this step once and the cause could only
+          # be guessed at, which cost a round: an unreadable failure is an unread failure.
+          if ! out="$(docker compose build dsh 2>&1)"; then
+            printf '%s\n' "$out" | tail -40
+            printf '%s\n' "$out" | tail -12 | tr -d '\r' | sed 's|^|::error::compose build: |'
+            exit 1
+          fi
+          printf '%s\n' "$out" | tail -5
 
       - name: The engine, on arm64, against a knowledge base
         run: |
@@ -244,7 +253,16 @@ jobs:
           DSH_PORT: "13080"
           HINDSIGHT_PORT: "19177"
           POSTGRES_PASSWORD: ci-only-not-a-secret
-        run: docker compose build dsh
+        run: |
+          # The log needs admin rights to read, so a failed build has to explain itself through a
+          # channel that does not. The arm64 job failed on this step once and the cause could only
+          # be guessed at, which cost a round: an unreadable failure is an unread failure.
+          if ! out="$(docker compose build dsh 2>&1)"; then
+            printf '%s\n' "$out" | tail -40
+            printf '%s\n' "$out" | tail -12 | tr -d '\r' | sed 's|^|::error::compose build: |'
+            exit 1
+          fi
+          printf '%s\n' "$out" | tail -5
 
       - name: The engine, on arm64, against a knowledge base
         run: |
