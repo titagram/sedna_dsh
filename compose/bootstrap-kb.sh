@@ -25,6 +25,7 @@ DRIVER="${SEDNA_DRIVER:-/opt/sedna/driver.py}"
 PYTHON="${SEDNA_PYTHON:-python3}"
 
 log() { printf '[kb] %s\n' "$*" >&2; }
+fail() { printf '[kb] error: %s\n' "$*" >&2; exit 1; }
 
 # The engine's engagement repository validates the knowledge root's mode by *equality*:
 # `_validate_directory(self._root_fd, label="knowledge root", expected_mode=0o700)`. A fresh
@@ -35,11 +36,19 @@ log() { printf '[kb] %s\n' "$*" >&2; }
 if [[ -d "$KB_ROOT" ]]; then
     current="$(stat -c '%a' "$KB_ROOT" 2>/dev/null || echo unknown)"
     if [[ "$current" != "700" ]]; then
-        chmod 700 "$KB_ROOT" && log "knowledge root mode $current -> 700 (the engine requires exactly this)"
+        if chmod 700 "$KB_ROOT" 2>/dev/null; then
+            log "knowledge root mode $current -> 700 (the engine requires exactly this)"
+        else
+            # Measured, not imagined: chmod fails exactly this way on a read-only mount, and on
+            # Docker Desktop for macOS and Windows the same happens for a bind-mounted host
+            # folder, because Unix modes are not expressible there. Without this branch the
+            # failure was silent and the run continued with a 0755 knowledge base: journal-backed
+            # operations then failed with "unsafe mode" while retrieval kept answering, which is
+            # the plugin-shaped confusion the comment above this block exists to prevent.
+            fail "the knowledge root $KB_ROOT is mode $current and its mode cannot be changed. The engine validates that directory by equality and refuses every journal-backed operation -- ingest included -- while retrieval keeps working, so it looks like a plugin fault. A bind-mounted host folder does this on Docker Desktop for macOS and Windows, where Unix modes are not expressible; use the Docker-managed 'kb' volume instead."
+        fi
     fi
 fi
-fail() { printf '[kb] error: %s\n' "$*" >&2; exit 1; }
-
 [[ -f "$DRIVER" ]] || fail "engine driver not found at $DRIVER"
 [[ -d "$SEDNA_SRC" ]] || fail "engine sources not found at $SEDNA_SRC"
 
