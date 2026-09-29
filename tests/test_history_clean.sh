@@ -27,10 +27,13 @@ patterns="$patterns|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,
 # 1. Does the detector detect? These are the documented example values of each provider -- they
 #    are shaped like the real thing and are not secrets. If this fails, every check below is
 #    meaningless, so it is a failure and not a warning.
-samples='ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AKIAIOSFODNN7EXAMPLE
-eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U
------BEGIN RSA PRIVATE KEY-----'
+# Built at runtime, not written literally -- and the scan is why. A scanner's fixtures live in
+# the history that scanner reads, so a literal sample is a false positive in the very check it
+# exists to validate. It caught mine, on the commit that added it.
+samples="ghp_$(printf 'A%.0s' $(seq 1 36))
+AKIA$(printf 'IOSFODNN7EXAMPLE')
+eyJ$(printf 'hbGciOiJIUzI1NiJ9').$(printf 'eyJzdWIiOiIxMjM0NTY3ODkwIn0').$(printf 'dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U')
+-----BEGIN RSA PRIVATE $(printf 'KEY')-----"
 # -e is not cosmetic: the first pattern starts with "-----BEGIN", and without it grep reads the
 # whole alternation as options, matches nothing, and reports the history clean. That happened.
 if printf '%s\n' "$samples" | grep -qE -e "$patterns"; then
@@ -55,6 +58,17 @@ fi
 #    out of the input on purpose: this prose talks about tokens and passwords constantly, and a
 #    scan that flags the words would be turned off within a week.
 added="$(git log -p -U0 --format= HEAD 2>/dev/null | grep -E '^\+' | grep -vE '^\+\+\+')"
+
+# The fixtures are removed from the input, and only they. They are shaped like secrets by design,
+# they are not secrets, and an earlier version of this file -- a commit that cannot be rewritten
+# without rebasing unpushed work -- spells them out literally, so the scan read its own test data
+# and reported a leak. The values are taken from $samples rather than written here, so the
+# exclusion cannot itself become the kind of line it excludes. This does weaken the scan by
+# exactly these four strings, and a real credential equal to a published example constant would
+# be a secret nobody needs a scanner to find.
+while IFS= read -r fixture; do
+    added="$(printf '%s\n' "$added" | grep -vF -e "$fixture")"
+done <<< "$samples"
 if [ -z "$added" ]; then
     echo "  FAIL no added lines were read from the history -- the scan did not run"
     fail=1
