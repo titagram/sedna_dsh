@@ -112,3 +112,38 @@ Still open on that path:
 * **Two checks skip in the test suite** and the emitter could not be found in the repository.
   `tests/test_seed_kb_audit.sh` says in as many words that a check which silently skips is
   the bug it is meant to catch; two unnamed skips are exactly how a coverage hole passes.
+
+## The one unverified claim, and exactly how to close it
+
+Everything this repository asserts is now measured somewhere, with one exception: **the container
+layer on macOS and Windows** -- Docker Desktop itself, and the file-sharing and bind-mount
+behaviour that comes with it.
+
+What is measured, and where:
+
+* Linux x86_64: the full suite, in CI on every push.
+* arm64: **natively**, in CI, on GitHub's arm64 runner -- the image builds there (boot gate
+  included) and the engine audits the seed's 94 canonical sources, rebuilds the index and
+  retrieves across all four lanes. This used to be an emulated result; it is not any more.
+* macOS and Windows, everything before a container starts: the shell each one actually has
+  (`/bin/bash` 3.2.57 on macOS, Git Bash on Windows), the line endings git delivers with
+  `core.autocrlf=true` -- the Git for Windows default, where a `.env` value used to arrive with a
+  trailing `\r` -- the installer's behaviour on a machine without Docker, and the portability
+  lint. All of it on real runners, on every push.
+
+What is not measured, and why it cannot be from here:
+
+* GitHub provides no Docker on its macOS runners and cannot run Linux containers on Windows ones,
+  so the container layer has nowhere to run there.
+* The `macos-docker` CI job boots Colima -- a Linux VM -- and runs the same build and engine test
+  that pass on the arm64 runner. It is deliberately non-blocking, and Colima is not Docker
+  Desktop: different file sharing, different bind mounts. A pass there narrows this gap and does
+  not close it. As of this writing the job has been queued for hours: GitHub annotates that
+  macOS runners are capacity constrained.
+* The peer DSH instance on the Mac has not answered, so the request it holds -- three commands to
+  run a clone, `install.sh --dry-run`, `docker compose up -d` and `verify.sh`, expected `passed
+  9, failed 0` -- is still the shortest path.
+
+To close it: run those three commands on a machine with Docker Desktop, on macOS or on Windows,
+and send back the `passed N, failed M` line and any `FAIL` line verbatim. Nothing else is needed,
+and nothing that carries a token should travel.
