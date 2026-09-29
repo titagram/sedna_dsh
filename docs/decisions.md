@@ -101,3 +101,37 @@ One source remains excluded, for a structural reason rather than a privacy one: 
 promoted from an engagement journal, so it stays valid only while the artifact it was
 rendered from exists, and that artifact lives under `engagements/`, which this seed does
 not publish. `tools/list_journal_promoted.py` finds those.
+
+**D19 · Docker Compose replaces the bash installer, because "installable" now means "on
+anybody's machine".** The requirement changed: the stack must come up on any machine, any
+architecture, any operating system — Linux, macOS, Windows, x86, arm64 — and the previous
+path could not. `install.sh` assumes bash, `systemd --user`, a POSIX filesystem layout and
+a root-adjacent sense of ownership: on macOS there is no systemd at all, and on Windows
+none of it. Compose is the smallest thing that is genuinely portable, and it makes the
+"few clicks" promise real: `docker compose up` and a browser.
+
+Three consequences, each a decision of its own:
+
+* **The provider becomes a configuration axis, not a choice made for the user.** Ollama
+  cloud, any OpenAI-compatible endpoint, or a model running locally. One `.env` file
+  selects it; nothing in the images is built around one vendor. The components that need a
+  model are the harness, Hindsight (extraction) and embeddings, and they are configured in
+  one place so they cannot disagree.
+* **The knowledge base becomes the operator's, and grows.** The seed in git stops being the
+  knowledge base and becomes its bootstrap: it unpacks only into an empty volume, so adding
+  knowledge never collides with `git pull`. A frozen seed is a demo; a base the operator can
+  add to is the product. This is also why the earlier habit of *excluding* a knowledge-base
+  source that cannot be published was wrong in a second way: it caps the base at what the
+  author was willing to publish, forever.
+* **The bank moves to a bucket.** The Hindsight bank is too large for git and grows without
+  bound; the repository holds the seed and the tooling, and the operator's cloud bucket
+  holds the backups. Restoring on a fresh machine must work from the bucket alone.
+
+The bash installer is not deleted yet: it stays until the container path is verified on a
+host that has nothing, then it is removed rather than maintained in parallel. Two installers
+is two ways to be wrong. `docs/maintenance.md` records the sequencing, and the container
+path gets its own CI job — a compose file that is never started is a compose file that does
+not work.
+
+Status: decided, implementation in progress; the provider matrix and the bucket integration
+are the two open pieces.

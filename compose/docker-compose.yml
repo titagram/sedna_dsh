@@ -1,0 +1,144 @@
+# Portability is the point: Docker Compose is the only supported way to run this stack,
+# because bash + systemd is not something macOS or Windows can provide (docs/decisions.md D19).
+#
+# Two services. Hindsight keeps the memory, DSH runs the agent and the Sedna tools, and the
+# knowledge base lives in a named volume that the seed only fills when it is empty.
+#
+# Everything is bound to 127.0.0.1 by default. Nothing in this file exposes the stack to a
+# network; see compose/README.md before changing that, because DSH's web GUI is reachable by
+# anyone who can reach the port.
+name: sedna-stack
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hindsight}
+      # Fails loudly instead of silently creating a database with a default password.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in compose/.env (see .env.example)}
+      POSTGRES_DB: ${POSTGRES_DB:-hindsight}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  hindsight:
+    # Official image, and multi-arch: amd64 and arm64 both work, which is what makes
+    # "any machine" more than a hope. Pin the version rather than tracking :latest.
+    image: ${HINDSIGHT_IMAGE:-ghcr.io/vectorize-io/hindsight:0.9.2}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Points at the postgres above. An embedded database is possible (leave this unset and
+      # read up on pg0) but then the persistent path is the image's business, not this file's.
+      HINDSIGHT_API_DATABASE_URL: postgresql://${POSTGRES_USER:-hindsight}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-hindsight}
+      HINDSIGHT_API_HOST: 0.0.0.0
+      HINDSIGHT_API_PORT: "8888"
+      # The provider axis. One choice, made in .env, for the whole stack.
+      HINDSIGHT_API_LLM_PROVIDER: ${LLM_PROVIDER:-none}
+      HINDSIGHT_API_LLM_BASE_URL: ${LLM_BASE_URL:-}
+      HINDSIGHT_API_LLM_API_KEY: ${LLM_API_KEY:-}
+      HINDSIGHT_API_LLM_MODEL: ${LLM_MODEL:-}
+      HINDSIGHT_API_EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-onnx}
+      HINDSIGHT_API_EMBEDDINGS_ONNX_MODEL_ID: ${EMBEDDINGS_ONNX_MODEL_ID:-intfloat/multilingual-e5-small}
+      HINDSIGHT_API_EMBEDDINGS_ONNX_DIMENSIONS: ${EMBEDDINGS_ONNX_DIMENSIONS:-384}
+      HINDSIGHT_API_EMBEDDINGS_TEI_URL: ${EMBEDDINGS_TEI_URL:-http://tei:80}
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_API_KEY: ${EMBEDDINGS_API_KEY:-}
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_MODEL: ${EMBEDDINGS_OPENAI_MODEL:-text-embedding-3-small}
+      HINDSIGHT_API_EMBEDDINGS_LOCAL_MODEL: ${EMBEDDINGS_LOCAL_MODEL:-intfloat/multilingual-e5-small}
+      HINDSIGHT_API_EMBEDDINGS_LOCAL_FORCE_CPU: ${EMBEDDINGS_LOCAL_FORCE_CPU:-true}
+      # Kept local by default: the machine that runs this is powerful enough, and moving to a
+      # lighter reranker is a one-line change for somebody who is not (see compose/README.md).
+      HINDSIGHT_API_RERANKER_PROVIDER: ${RERANKER_PROVIDER:-local}
+      HINDSIGHT_API_RERANKER_LOCAL_MODEL: ${RERANKER_LOCAL_MODEL:-BAAI/bge-reranker-v2-m3}
+    ports:
+      - "127.0.0.1:${HINDSIGHT_PORT:-9177}:8888"
+    volumes:
+      # Model weights are downloaded once and kept: without this every restart re-downloads.
+      - hfcache:/home/hindsight/.cache
+      - ${SEED_DIR:-../seed}:/seed:ro
+    extra_hosts:
+      # On Linux `host.docker.internal` does not exist by default. It is what lets the stack
+      # use an Ollama daemon running on the host (which is how a cloud model can be reached
+      # without an API key) instead of one inside the compose network.
+      - "host.docker.internal:host-gateway"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # The image has no healthcheck of its own. This one asks the API it already runs.
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8888/health', timeout=5).status==200 else 1)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  dsh:
+    build:
+      context: ..
+      dockerfile: compose/dsh/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      hindsight:
+        condition: service_started
+    env_file:
+      # Optional to *exist* so that `docker compose config` works before the first run, but
+      # the required values below still refuse to interpolate without one (see .env.example).
+      - path: .env
+        required: false
+    environment:
+      DSH_HOME: /home/dsh/.dsh
+      DSH_TELEMETRY_DISABLED: "1"
+      # The knowledge base is a volume; the seed is read-only input to it.
+      SEDNA_KB_ROOT: /data/kb
+      SEDNA_SRC: /opt/sedna-engine/src
+      SEDNA_PYTHON: /opt/sedna/venv/bin/python
+      SEDNA_DRIVER: /opt/sedna/driver.py
+      SEDNA_SEED_DIR: /seed
+      # Ingest is the only stage that needs a model. Same provider choice as the rest.
+      SEDNA_OLLAMA_URL: ${SEDNA_OLLAMA_URL:-}
+      SEDNA_OLLAMA_MODEL: ${SEDNA_OLLAMA_MODEL:-}
+      SEDNA_OLLAMA_API_KEY: ${SEDNA_OLLAMA_API_KEY:-}
+      # The name settings.yaml refers to via apiKeyEnv, so one value in .env serves both.
+      OLLAMA_API_KEY: ${LLM_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      HINDSIGHT_API_URL: http://hindsight:8888
+    ports:
+      - "127.0.0.1:${DSH_PORT:-3080}:3080"
+    volumes:
+      - dshhome:/home/dsh/.dsh
+      - kb:/data/kb
+      - ${SEED_DIR:-../seed}:/seed:ro
+      - ${WORKSPACE_DIR:-..}:/workspace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    security_opt:
+      - no-new-privileges:true
+
+  tei:
+    # Optional, and off unless you ask: `docker compose --profile tei up -d`.
+    # Embeddings are the one thing Ollama Cloud cannot serve (its /v1/embeddings answers 404
+    # and Hindsight has no `ollama` embeddings provider). This is a service, not a chat model.
+    profiles: ["tei"]
+    image: ${TEI_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.8}
+    restart: unless-stopped
+    command: ["--model-id", "${EMBEDDINGS_ONNX_MODEL_ID:-intfloat/multilingual-e5-small}"]
+    volumes:
+      - teidata:/data
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  teidata:
+  pgdata:
+  hfcache:
+  kb:
+  dshhome:

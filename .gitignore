@@ -28,3 +28,4 @@ credentials*
 *.key
 id_rsa*
 .DS_Store
+compose/.env

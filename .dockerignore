@@ -1,0 +1,7 @@
+# The image never needs the repository's history, and the seed is bind-mounted read-only
+# at /seed rather than copied: `git pull` should update what a running stack seeds from.
+.git
+seed
+tests
+*.bundle
+compose/dsh/__pycache__

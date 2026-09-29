@@ -1,0 +1,20 @@
+# What the entrypoint generates on a fresh volume, kept here as documentation.
+#
+# One route, named for this stack, pointing at whatever compose/.env selected. The endpoint
+# must be OpenAI-compatible (`api: openai-completions`): Ollama Cloud, a gateway, a local
+# Ollama daemon, anything serving /v1/chat/completions.
+#
+# Credentials are resolved from the environment by name (apiKeyEnv), never written here --
+# so this file can live in a volume that gets backed up without carrying a secret.
+llm-pi-ai:
+  providers:
+    stack-provider:
+      api: openai-completions
+      baseURL: https://ollama.com/v1          # or http://host.docker.internal:11434/v1
+      apiKeyEnv: OLLAMA_API_KEY
+      displayName: Configured by compose/.env
+      models:
+        - id: gpt-oss:120b
+          name: gpt-oss:120b
+          contextWindow: 131072
+          maxTokens: 32768
