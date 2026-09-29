@@ -125,6 +125,20 @@ docker compose exec dsh /opt/sedna/venv/bin/python /opt/sedna/driver.py <<'JSON'
 JSON
 ```
 
+Before spending a model call, ask whether the source will be accepted. The same operation
+with `"check":true` runs the deterministic half of the pipeline -- inventory, family and
+structure -- and calls no model at all:
+
+```sh
+docker compose exec dsh /opt/sedna/venv/bin/python /opt/sedna/driver.py <<'JSON'
+{"op":"ingest","args":{"source":"/inbox/write-ups/machines/YourBox/YourBox.md","check":true}}
+JSON
+```
+
+A file outside that layout comes back `quarantined` with the classifier's own reasons —
+measured: `["ambiguous", "no_deterministic_rule_matched"]`. A source the engine already holds
+comes back `unchanged`, which means it is knowledge, not that it was refused.
+
 You get back the engine's own verdict per source — `verified`, `unchanged`, `quarantined` or
 `failed`, with reason codes. **Read it.** A source is classified by its physical path, and the
 failure that matters is not a refusal you can see: it is a file that is accepted into a

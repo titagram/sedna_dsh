@@ -570,15 +570,77 @@ def op_ingest(args: dict) -> dict:
         raise ValueError("ingest source must be inside the inbox: " + str(inbox))
 
     if bool(args.get("check")):
-        return {
-            "source": str(resolved),
-            "checked_only": True,
-            "would_ingest": True,
-            "note": (
-                "the layout is judged by the engine during a real run; this answers only that "
-                "the path exists, is inside the inbox and is a supported file or directory"
-            ),
-        }
+        # The deterministic half of the pipeline, run on its own. Inventory and preparation
+        # decide whether a source is eligible -- the family it belongs to, its path, its
+        # structure -- and neither of them calls a model. This is the answer to "will this be
+        # accepted", one step before paying for extraction.
+        #
+        # It is not a simulation: preparation records the source's foundation state, which is
+        # exactly what a later ingest would build on. What it does not do is spend a model call
+        # on a file that was never going to be accepted.
+        from sedna.knowledge.classifier import classify_document
+        from sedna.knowledge.inventory import discover_sources
+        from sedna.knowledge.pipeline import IngestionPipeline
+
+        root = resolved if resolved.is_dir() else resolved.parent
+        only = None if resolved.is_dir() else resolved.name
+        repository = _repository()
+        try:
+            with IngestionPipeline(root, KB_ROOT, repository=repository) as pipeline:
+                found = [
+                    candidate
+                    for candidate in discover_sources(root)
+                    if only is None or candidate.relative_path == only
+                ]
+                entries = []
+                for candidate in found:
+                    entry = {"relative_path": candidate.relative_path}
+                    try:
+                        prepared = pipeline.prepare(candidate)
+                        entry["outcome"] = pipeline.last_outcome or (
+                            "accepted" if prepared is not None else None
+                        )
+                        # "unchanged" is a source the engine already holds: it was not
+                        # re-prepared, but reporting it as ineligible reads as a rejection.
+                        entry["eligible"] = prepared is not None or (
+                            pipeline.last_outcome == "unchanged"
+                        )
+                    except Exception as error:
+                        entry["outcome"] = "failed"
+                        entry["eligible"] = False
+                        entry["error"] = f"{type(error).__name__}: {_bounded(error)}"
+                    if entry["outcome"] in {"quarantined", "excluded"}:
+                        # The pipeline records *that* a source was refused; the classifier
+                        # knows why. Asking it directly is what turns a silent quarantine
+                        # into something an operator can act on.
+                        try:
+                            text = None
+                            candidate_path = root / candidate.relative_path
+                            if candidate_path.suffix.casefold() == ".md":
+                                text = candidate_path.read_text(errors="replace")
+                            verdict = classify_document(candidate, text)
+                            try:
+                                entry["classification"] = verdict.model_dump(mode="json")
+                            except Exception:
+                                entry["classification"] = json.loads(
+                                    json.dumps(verdict, default=str)
+                                )
+                        except Exception as error:
+                            entry["classification_error"] = type(error).__name__
+                    entries.append(entry)
+                return {
+                    "source": str(resolved),
+                    "checked_only": True,
+                    "candidate_count": len(entries),
+                    "entries": entries,
+                    "note": (
+                        "deterministic preparation only: nothing was sent to a model. An eligible "
+                        "source is not yet knowledge -- run the same operation without check to "
+                        "extract and verify it."
+                    ),
+                }
+        finally:
+            repository.close()
 
     # The host adapter is the engine's own. Its API mode is auto-detected from the URL, and
     # that detection is load-bearing: an endpoint containing `/v1` or `ollama.com` takes the
