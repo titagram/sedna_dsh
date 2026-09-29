@@ -1,145 +1,146 @@
 #!/usr/bin/env bash
-# Sedna + Hindsight on DeepSeek Harness, installed from this repository.
+# Install and start Sedna + Hindsight with Docker Compose.
 #
-# One command, no containers, no Hermes:
+#   ./install.sh                 install and start
+#   ./install.sh --dry-run       say what would happen, change nothing
+#   ./install.sh --port 3080     use another port for the web interface
 #
-#     ./install.sh
+# Everything runs in containers. This script installs nothing on the host and writes exactly
+# one file, compose/.env, the first time -- and never again, because that file holds your
+# provider choice and your bucket credentials.
 #
-# What it installs into $HOME (override with DSH_HOME / STACK_HOME / KB_ROOT):
+# What it needs: Docker with the Compose v2 plugin (Docker Desktop covers macOS, Windows and
+# Linux; on Linux, "docker compose" must exist, not only "docker-compose").
 #
-#   ~/.dsh                      DSH itself, its profile, and the plugin row
-#   ~/.dsh/sedna                the Sedna engine and its virtualenv
-#   ~/.dsh/knowledge/sedna      the Sedna knowledge base, unpacked from seed/
-#   ~/.dsh/plugins/sedna        the Cordis plugin that exposes the sedna_* tools
-#   ~/.hindsight                the Hindsight daemon and the imported memory bank
-#
-# Design rules:
-#   * idempotent: running it twice is safe and cheap;
-#   * honest: every step ends with a check, and the installer fails if the thing
-#     it installed does not actually answer;
-#   * reversible: existing files are backed up before they are touched, and
-#     nothing is deleted;
-#   * --dry-run prints every command without running it.
-#
-# Usage:
-#   ./install.sh [options]
-#
-#   --dry-run              print what would happen, change nothing
-#   --yes                  do not ask for confirmation
-#   --llm <api|ollama|skip>  how the stack reaches a model (asked interactively otherwise)
-#   --only <step,...>      run only these steps
-#   --skip <step,...>      run everything except these steps
-#   --bank <name>          Hindsight bank to create/import (default: hermes)
-#   --dsh-version <ver>    version of @deepseek-ai/dsh to install
-#   --hindsight-version <ver>  version of hindsight-all to install
-#   --uninstall            remove what this installer created (keeps your memory)
-#   --purge-data           with --uninstall: also delete the memory (irreversible)
-#   --help
-#
-# Steps: prereqs dsh settings plugin engine kb hindsight services verify
-set -uo pipefail
+# What to expect: the first start loads the seed (866 documents) into an empty volume and
+# re-embeds it, which takes roughly half an hour on a laptop. Later starts are immediate.
+set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export REPO_ROOT
+DRY_RUN=false
+PORT_OVERRIDE=""
 
-ONLY=""
-SKIP=""
-LLM_MODE=""
-UNINSTALL="false"
-PURGE_DATA="false"
+usage() { sed -n '2,18p' "$0"; }
+say()   { printf '%s\n' "$*"; }
+warn()  { printf 'warning: %s\n' "$*" >&2; }
+fail()  { printf 'error: %s\n' "$*" >&2; printf '\n' >&2; usage >&2; exit 1; }
+step()  { printf '\n== %s\n' "$*"; }
 
-while [[ $# -gt 0 ]]; do
+while [ $# -gt 0 ]; do
     case "$1" in
-        --dry-run) DRY_RUN=true; export DRY_RUN; shift ;;
-        --yes|-y) ASSUME_YES=true; shift ;;
-        --llm) LLM_MODE="$2"; shift 2 ;;
-        --only) ONLY="$2"; shift 2 ;;
-        --skip) SKIP="$2"; shift 2 ;;
-        --bank) BANK_NAME="$2"; shift 2 ;;
-        --dsh-version) DSH_VERSION="$2"; shift 2 ;;
-        --hindsight-version) HINDSIGHT_VERSION="$2"; shift 2 ;;
-        --uninstall) UNINSTALL="true"; shift ;;
-        --purge-data) PURGE_DATA="true"; shift ;;
-        --prefix) DSH_HOME="$2/.dsh"; STACK_HOME="$2/.dsh/sedna"; shift 2 ;;
-        -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
-        *) echo "install.sh: unknown argument: $1" >&2; exit 2 ;;
+        -h|--help)    usage; exit 0 ;;
+        -n|--dry-run) DRY_RUN=true; shift ;;
+        --port)       [ $# -ge 2 ] || fail "--port needs a number"
+                      PORT_OVERRIDE="$2"; shift 2 ;;
+        *)            fail "unknown option: $1" ;;
     esac
 done
-export ASSUME_YES BANK_NAME DSH_VERSION HINDSIGHT_VERSION LLM_MODE UNINSTALL PURGE_DATA
 
-# `--llm skip` is an explicit "the DSH half now, the memory daemon when I have a
-# model" request.  Nothing downstream of the model can work without one, so
-# pretending to install it and failing at the end would be worse than saying so.
-SKIP_LLM="false"
-[[ "$LLM_MODE" == "skip" ]] && SKIP_LLM="true"
-export SKIP_LLM
-
-for file in "$REPO_ROOT"/lib/*.sh; do
-    # shellcheck disable=SC1090
-    source "$file"
-done
-
-STEPS=(prereqs dsh settings plugin engine kb hindsight services verify)
-
-# An uninstall is not a step in the install: it is the other direction, and running
-# any installation step after it would rebuild what was just removed.
-if [[ "$UNINSTALL" == "true" ]]; then
-    STEPS=(uninstall)
-    ONLY=""
-    SKIP=""
+if [ -n "$PORT_OVERRIDE" ]; then
+    case "$PORT_OVERRIDE" in
+        *[!0-9]*) fail "--port needs a number, got '$PORT_OVERRIDE'" ;;
+    esac
 fi
 
-selected() {
-    local step="$1"
-    if [[ -n "$ONLY" ]]; then
-        [[ ",$ONLY," == *",$step,"* ]] || return 1
-    fi
-    if [[ -n "$SKIP" ]]; then
-        [[ ",$SKIP," == *",$step,"* ]] && return 1
-    fi
-    return 0
-}
+HERE=$(cd "$(dirname "$0")" && pwd)
+COMPOSE_DIR="$HERE/compose"
+ENV_FILE="$COMPOSE_DIR/.env"
+[ -f "$COMPOSE_DIR/docker-compose.yml" ] || fail "compose/docker-compose.yml is missing next to this script"
 
-banner() {
-    cat <<EOF
-${C_BOLD}Sedna + Hindsight for DSH${C_RESET}
-  repository : $REPO_ROOT
-  dsh home   : $DSH_HOME
-  engine     : $STACK_HOME
-  knowledge  : $KB_ROOT
-  bank       : $BANK_NAME
-$( [[ "$DRY_RUN" == "true" ]] && echo "  mode       : DRY RUN -- nothing will be changed" )
-EOF
-}
-
-banner
-
-for step in "${STEPS[@]}"; do
-    selected "$step" || { log "skipping step: $step"; continue; }
-    function="step_${step}"
-    if ! declare -F "$function" >/dev/null; then
-        die "step '$step' has no implementation ($function) -- refusing to pretend"
-    fi
-    heading "$step"
-    "$function" || die "step '$step' failed"
-done
-
-if [[ "$UNINSTALL" == "true" ]]; then
-    printf '\nThe stack is gone.  Your memory and your DSH settings are not.\n'
-else
-    heading "summary"
-    printf '  dsh        : %s\n' "$(state_get dsh_version 'not installed')"
-    printf '  engine     : %s\n' "$(state_get engine_version 'not installed')"
-    printf '  knowledge  : %s\n' "$(state_get kb_bundles 'not installed') bundles"
-    printf '  bank       : %s (%s documents)\n' "$BANK_NAME" "$(state_get bank_documents unknown)"
-    printf '  state file : %s\n' "$(state_file)"
-    if [[ "${SKIP_LLM:-false}" == "true" ]]; then
-        printf '\nNext: %s\n' "${C_BOLD}./install.sh --only settings --llm api|ollama${C_RESET}  then --only hindsight,services"
+# A secret is generated locally, so that the first thing a new user does is not inventing a
+# password for a database, and so that every machine does not share the one from the example.
+generate_secret() {
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -hex 24
+    elif [ -r /dev/urandom ]; then
+        od -An -tx1 -N24 /dev/urandom | tr -d ' \n'
     else
-        printf '\nNext: %s\n' "${C_BOLD}dsh web${C_RESET}  (it prints the URL and token to open)"
+        printf 'sedna-local-%s-%s' "$$" "$RANDOM"
     fi
+}
+
+# bash's /dev/tcp works on Linux, macOS and Git Bash alike, which is why it is used instead of
+# lsof, ss or netstat: those differ on every platform and none of them is reliably installed.
+port_in_use() {
+    # The descriptor is opened and closed inside the subshell on purpose. Closing it in the
+    # parent (`exec 3<&-`) looks harmless and is not: when fd 3 was never opened, that is a
+    # redirection error on `exec` with no command, and a non-interactive shell exits *there* --
+    # bypassing `|| true` and printing nothing. It made this check fail silently, but only when
+    # the port was in use, which is exactly when the message mattered.
+    if (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+env_value() {
+    [ -f "$ENV_FILE" ] || return 1
+    sed -n "s/^$1=//p" "$ENV_FILE" | tail -1
+}
+
+step "this machine"
+say "   host:  $(uname -s) $(uname -m)"
+say "   docker is the only requirement; nothing is installed on the host"
+
+step "checking docker"
+command -v docker >/dev/null 2>&1 || fail "docker is not installed (Docker Desktop on macOS and Windows, Docker Engine on Linux)"
+if ! docker compose version >/dev/null 2>&1; then
+    fail "'docker compose' (the v2 plugin) is not available; this stack does not use docker-compose v1"
+fi
+say "   ok: $(docker compose version | head -1)"
+
+step "configuration"
+if [ -f "$ENV_FILE" ]; then
+    say "   keeping your existing $ENV_FILE"
+elif $DRY_RUN; then
+    say "   would create $ENV_FILE from .env.example, with a generated database password"
+else
+    umask 077
+    sed "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(generate_secret)|" \
+        "$COMPOSE_DIR/.env.example" > "$ENV_FILE"
+    say "   created $ENV_FILE with a generated database password"
+    say "   edit it to choose your LLM provider (the LLM_* block); the defaults need no key"
 fi
 
-if [[ "$DRY_RUN" == "true" ]]; then
-    printf '\n%sDry run finished: nothing above actually happened.%s\n' "$C_YELLOW" "$C_RESET"
+PORT="${PORT_OVERRIDE:-$(env_value DSH_PORT 2>/dev/null || true)}"
+PORT="${PORT:-3080}"
+if port_in_use "$PORT"; then
+    fail "port $PORT on 127.0.0.1 is already taken -- something else is serving there. Use --port <other>, or stop it"
+fi
+say "   web interface will listen on 127.0.0.1:$PORT"
+
+step "starting the stack"
+if $DRY_RUN; then
+    printf '   would run: cd %s && docker compose up -d\n' "$COMPOSE_DIR"
+else
+    cd "$COMPOSE_DIR"
+    # The shell environment wins over .env during interpolation, so --port has to reach
+    # compose this way: otherwise the check tests one port and the stack binds another.
+    export DSH_PORT="$PORT"
+    DOCKER_BUILDKIT=1 docker compose up -d
+fi
+
+step "done"
+if $DRY_RUN; then
+    say "   dry run finished: nothing was changed"
+    exit 0
+fi
+say "   On a first run the stack is loading the seed; watch it with:"
+say "     docker compose -f $COMPOSE_DIR/docker-compose.yml logs -f dsh"
+say
+say "   Your authenticated URL (the token is generated at every start and is the only way in):"
+count=0
+url=""
+while [ "$count" -lt 30 ]; do
+    url=$(docker compose -f "$COMPOSE_DIR/docker-compose.yml" logs dsh 2>/dev/null \
+          | grep -o 'http://127.0.0.1:[0-9][0-9]*/?token=[A-Za-z0-9_-]*' | tail -1 || true)
+    if [ -n "$url" ]; then break; fi
+    count=$((count + 1))
+    sleep 4
+done
+if [ -n "$url" ]; then
+    say "     $url"
+    say
+    say "   When that page answers, verify the whole stack with: cd $COMPOSE_DIR && ./verify.sh"
+else
+    warn "the interface has not announced itself yet; read it with: docker compose -f $COMPOSE_DIR/docker-compose.yml logs dsh | grep token="
 fi

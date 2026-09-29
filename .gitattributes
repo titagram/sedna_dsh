@@ -1,0 +1,17 @@
+# Line endings are part of whether this repository works.
+#
+# A Windows clone with the default `core.autocrlf=true` gives every shell script CRLF endings,
+# and a CRLF shebang inside a Linux container is not a warning: the entry point dies with
+# "\r': command not found" and the container restart-loops. The stack is meant to run on macOS
+# and Windows as much as on Linux, so the endings are pinned here rather than left to the
+# cloning machine's git configuration.
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.mjs text eol=lf
+*.sql text eol=lf

@@ -5,15 +5,15 @@
 One repository that installs, on a machine that has nothing, a complete
 offensive-security memory stack **for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) only**:
 
-* **DSH** itself, installed by the installer when it is missing;
+* **DSH** itself, in a container built from this repository;
 * **Sedna**, the curated, fail-closed knowledge engine, mounted as a DSH plugin
   (five `sedna_*` tools, available in every session);
 * **Hindsight**, the long-term memory daemon, with its bank **restored from the
   seed committed in this repository**;
 * the operator's own **knowledge base** (canonical bundles, guards, verification
-  records) unpacked and ready to retrieve from.
+  records) unpacked into a volume that no later start ever writes to.
 
-No Hermes. No Hades. No containers. No pnpm.
+No Hermes. No Hades. No pnpm. Nothing installed on the host except Docker.
 
 ```bash
 git clone https://github.com/titagram/sedna_dsh.git
@@ -21,16 +21,18 @@ cd sedna_dsh
 ./install.sh
 ```
 
-Three commands. The installer asks one question — which model the memory should use, an
-API key or a local ollama — installs DSH when it is absent, and takes about ten minutes on
-a machine with a warm package cache: most of it is Hindsight's local embedding stack,
-[6.8 GB measured](docs/maintenance.md). It refuses to run as root, because Hindsight's
-embedded PostgreSQL will not, and saying so up front is kinder than failing four minutes
-later. `bash tools/doctor.sh` checks what a machine already has.
+The installer checks that Docker and the Compose v2 plugin are present, creates `compose/.env`
+once with a generated database password, and brings the stack up — PostgreSQL with pgvector,
+Hindsight, DSH. It never overwrites an `.env` that already exists, because that file holds your
+provider choice and your bucket credentials. The first start loads the seed: 866 documents,
+re-embedded locally, about half an hour on a laptop. Later starts are immediate. When the
+interface answers, the installer prints its authenticated URL.
 
-`./install.sh --dry-run` prints every command without changing anything.
-`./install.sh --llm api|ollama|skip` answers the only question the installer
-really has (see [The model](#the-model)).
+`./install.sh --dry-run` says what it would do without changing anything.
+`./install.sh --port 3080` moves the web interface when something already serves that port;
+it checks before starting, because a port collision is otherwise reported as a container that
+silently stays in `created`.
+The model is chosen in `compose/.env`, not on the command line (see [The model](#the-model)).
 
 ## Status
 
@@ -56,33 +58,43 @@ Read [SECURITY.md](SECURITY.md) before you decide to clone it in public.
 
 ## What ends up on the machine
 
-| Path | What |
-|---|---|
-| `~/.dsh` | DSH, its profile, and the plugin row (`cordis.patch.yml`) |
-| `~/.dsh/sedna/src` + `.venv` | the Sedna engine and its virtualenv |
-| `~/.dsh/knowledge/sedna` | the knowledge base, unpacked from `seed/sedna-kb.tar.gz` |
-| `~/.dsh/plugins/sedna` | the Cordis plugin exposing the `sedna_*` tools |
-| `~/.hindsight` + `~/.pg0` | the memory daemon, its embedded PostgreSQL, and the imported bank |
-| `~/.config/systemd/user/sedna-*.service` | two user units (memory daemon, DSH web UI) |
+Nothing on the host except Docker. Everything lives in named volumes, and `docker compose down`
+keeps them — only `down -v` destroys them, which is also how you start over.
 
-Prerequisites: **Node ≥ 24.2** (DSH uses `import.meta.main`; on Node 22/23 the CLI
-starts and silently does nothing, which is why the version is checked explicitly),
-**Python ≥ 3.11**, `git`, `curl`, `tar`. No `pnpm`: the plugin is mounted by
-absolute path, not from a registry.
+| Volume | What |
+|---|---|
+| `pgdata` | Hindsight's PostgreSQL: the memory bank |
+| `hfcache` | Hindsight's model cache (local embedding and reranker weights) |
+| `kb` | the Sedna knowledge base, unpacked from `seed/sedna-kb.tar.gz` on the first start only |
+| `dshhome` | DSH's home inside the container: settings and the plugin row |
+| `teidata` | the optional embedding server, only if you enable the `tei` profile |
+
+The host directory `compose/inbox/` is the one place where a file you write on the host becomes
+input: it is mounted at `/inbox`, and the ingest operation refuses any path outside it.
+
+Prerequisites: **Docker with the Compose v2 plugin**. Node and Python are *not* prerequisites —
+they live inside the images. (DSH needs Node ≥ 24.2, and the image pins Node 24, because on
+Node 22 the CLI starts and silently does nothing: a version check that fails loudly is worth
+more than one that works by accident.)
 
 ## The model
 
-Nothing here works without a language model — Hindsight extracts facts with one and
-Sedna plans and ingests with one. The installer therefore asks exactly once:
+Nothing here works without a language model — Hindsight extracts facts with one and Sedna plans
+and ingests with one. It is one axis in `compose/.env`, and it applies to the whole stack:
 
-* `--llm ollama` uses a local [ollama](https://ollama.com) and discovers its models;
-* `--llm api` takes any OpenAI-compatible base URL, key and model id;
-* `--llm skip` installs the stack anyway and tells you retrieval will work while
-  planning and ingestion will not.
+* `LLM_PROVIDER=ollama` with `LLM_BASE_URL` pointing at a daemon you run: no key and no account
+  anywhere, which is why the stack can come up on a machine with no internet account at all;
+* `LLM_PROVIDER=ollama-cloud` or `openai`: a hosted endpoint, with `LLM_API_KEY` and `LLM_MODEL`.
+  Any OpenAI-compatible service works; that is the only interface this needs.
 
-Whatever you choose, the key is written to two files, both mode 0600:
-`~/.dsh/settings.yaml` (DSH's own) and `~/.dsh/sedna/hindsight.env` (the daemon's).
-It is never echoed, never passed as a command-line argument, and never committed.
+Embeddings and the reranker are chosen in the same file and default to running locally (`onnx`,
+plus a local reranker), so nothing leaves the machine unless you decide it should. Retrieval and
+the knowledge-base audit need no model at all; only planning and ingestion do.
+
+Secrets live only in `compose/.env`, mode 0600 and gitignored. `.env.example` documents every
+axis. **Ingest is the one stage that needs a model honouring a JSON schema**, which no provider
+advertises as a feature and which had to be measured — see "Adding knowledge" in
+`compose/README.md`.
 
 ## The seed, and the gate
 
