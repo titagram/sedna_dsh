@@ -1,0 +1,75 @@
+{
+  "id": "sedna-bridge",
+  "name": "Sedna bridge (LLM-free)",
+  "version": "1.0.0",
+  "released": "2026-09-20",
+  "purpose": "Drive the Sedna decision-support stack from a DSH instance: knowledge retrieval over the canonical KB, engagement journal reads and writes, and knowledge-index maintenance — all without a host LLM.",
+  "entry": "index.mjs",
+  "entryUrlPattern": "file://<install-dir>/index.mjs",
+  "runtime": {
+    "harness": "dsh",
+    "plane": "preset",
+    "node": ">=18",
+    "python": ">=3.11",
+    "dependencies": "none beyond the Node and Python standard libraries"
+  },
+  "requires": [
+    {
+      "what": "Sedna source tree",
+      "configKey": "sednaSrc",
+      "env": "SEDNA_SRC",
+      "note": "the tree Hermes runs; the driver puts it on sys.path and imports sedna.*"
+    },
+    {
+      "what": "Sedna knowledge root",
+      "configKey": "knowledgeRoot",
+      "env": "SEDNA_KB_ROOT",
+      "note": "canonical artifacts, manifests, engagement journals and the disposable retrieval index"
+    },
+    {
+      "what": "A Python interpreter able to import the Sedna package",
+      "configKey": "python",
+      "env": "SEDNA_PYTHON",
+      "note": "usually the Sedna virtualenv; the host python3 works only if sedna is importable from it"
+    }
+  ],
+  "tools": [
+    "sedna_retrieve_knowledge",
+    "sedna_get_knowledge_artifact",
+    "sedna_knowledge_maintenance",
+    "sedna_manage_engagement",
+    "sedna_record_decision"
+  ],
+  "notProvided": [
+    {
+      "tool": "sedna_plan_next",
+      "why": "the planning path needs a host structured-completion facade (Hermes supplies ctx.llm); DSH exposes none to a file plugin, and this plugin deliberately makes no model call"
+    },
+    {
+      "tool": "engagement close / verify / promote",
+      "why": "the promotion saga is not bridged; close and verify remain Hermes-side operations"
+    },
+    {
+      "tool": "sedna_learn_local",
+      "why": "ingestion requires the semantic extraction host"
+    }
+  ],
+  "writeSurface": {
+    "laneGated": ["sedna_record_decision"],
+    "notLaneGated": ["sedna_manage_engagement:resume", "sedna_manage_engagement:abandon"],
+    "bridgeGuard": "resume and abandon require confirm=true; the guard marks the call deliberate, it is not a security boundary",
+    "warning": "measured 2026-09-20: a lane never bound to any engagement successfully abandoned an arbitrary engagement"
+  },
+  "configKeys": {
+    "python": "interpreter used to run driver.py",
+    "driver": "absolute path to driver.py",
+    "sednaSrc": "Sedna source tree placed on sys.path",
+    "knowledgeRoot": "Sedna KB root",
+    "timeoutMs": "per-call timeout, default 120000"
+  },
+  "install": {
+    "script": "install.sh",
+    "thenAddCompositionRow": "- id: sedna-bridge\n  name: 'file://<install-dir>/index.mjs'",
+    "restartRequired": "yes — the row is read at DSH start"
+  }
+}

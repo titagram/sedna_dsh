@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Installer leftovers
+*.bak.sedna-stack.*
+*.tmp
+seed/*.partial
+
+# Working data that must never be committed here.  This repository ships a *seed*
+# (canonical, verified, sanitized).  A raw working tree is not a seed:
+#   raw_src/     collected write-ups and notes -- the public titagram/sedna history
+#                already shows what happens when these are committed: 66 files with
+#                captured flags.  Never again.
+#   engagements/ the append-only journals and their evidence blobs, which quote the
+#                material that was found on target.
+#   indexes/     the full-text index, rebuilt on demand from the canonical bundles.
+raw_src/
+engagements/
+indexes/
+retrieval.sqlite
+*.ovpn
+credentials*
+*.pem
+*.key
+id_rsa*
+.DS_Store

@@ -1,0 +1,25 @@
+{
+  "target": "{{ target }}",
+  "authorization": {
+    "state": "authorized",
+    "exact_targets": ["{{ target }}"],
+    "cidrs": [],
+    "hostnames": [],
+    "url_origins": [],
+    "generic_ids": []
+  },
+  "observed_facts": [
+    {{#each observed_facts}}
+    {
+      "namespace": "{{namespace}}",
+      "key": "{{key}}",
+      "value": "{{value}}",
+      "confidence": {{confidence}}
+    }{{#unless @last}},{{/unless}}
+    {{/each}}
+  ],
+  "observed_services": [{{#each services}}"{{this}}"{{#unless @last}},{{/unless}}{{/each}}],
+  "query_terms": [{{#each query_terms}}"{{this}}"{{#unless @last}},{{/unless}}{{/each}}],
+  "max_candidates": 16,
+  "lane_limit": 4
+}

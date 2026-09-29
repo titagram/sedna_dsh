@@ -1,0 +1,8 @@
+{
+  "_comment": "Template. install.sh generates the real config.json (mode 0600) from detected paths; every value below can also be overridden per call by the environment variables named in plugin.json. Do not commit a filled-in copy: the paths are machine-specific.",
+  "python": "/path/to/sedna/.venv/bin/python",
+  "driver": "/path/to/sedna-bridge/driver.py",
+  "sednaSrc": "/path/to/sedna/src",
+  "knowledgeRoot": "/path/to/sedna/knowledge",
+  "timeoutMs": 120000
+}

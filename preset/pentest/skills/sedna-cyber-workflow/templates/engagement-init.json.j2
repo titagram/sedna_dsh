@@ -1,0 +1,21 @@
+{
+  "display_name": "{{ engagement_name }}",
+  "objective": "{{ objective }}",
+  "authorization": {
+    "state": "authorized",
+    "exact_targets": [{{#each targets}}"{{this}}"{{#unless @last}},{{/unless}}{{/each}}],
+    "cidrs": [],
+    "hostnames": [],
+    "url_origins": [],
+    "generic_ids": []
+  },
+  "required_proofs": [
+    {{#each proofs}}
+    {
+      "proof_id": "{{proof_id}}",
+      "kind": "{{kind}}",
+      "description": "{{description}}"
+    }{{#unless @last}},{{/unless}}
+    {{/each}}
+  ]
+}

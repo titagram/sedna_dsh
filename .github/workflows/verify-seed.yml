@@ -1,0 +1,43 @@
+name: verify-seed
+
+# The gate.  This repository publishes memory: if a captured flag, a key or a
+# credential-shaped literal ever enters seed/, it must fail here rather than on
+# somebody's clone.
+#
+# Three checks, in increasing order of specificity:
+#   1. the scanner's own test suite (the gate must work on the poisoned fixtures),
+#   2. the manifest matches the artifacts (the committed backup is the one described),
+#   3. no BLOCK-class literal anywhere in seed/, engine/, plugin/, tools/, docs/.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The runner ships Node 22; DSH needs >= 24.2 (it uses import.meta.main), so the
+      # installer's own prerequisite check fails without this -- which is how the first
+      # push went red.  Installing the version the project documents is the fix; relaxing
+      # the check would have been the wrong one.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # The same script a contributor runs locally, so "it passes here" means something.
+      - name: All checks
+        run: bash tests/run-all.sh

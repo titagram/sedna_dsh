@@ -1,0 +1,50 @@
+{
+  "artifacts": [
+    {
+      "bytes": 8917584,
+      "name": "hindsight-bank.zip",
+      "sha256": "a33f22b34c3e30b75dcbd9f85251e783761689405238b59477550c3510b9cef7"
+    },
+    {
+      "bytes": 590784,
+      "name": "sedna-kb.tar.gz",
+      "sha256": "93876f75a38396d2b8f7cf95d11b6a5197eb3ecceb92d7dfa84efa5ee0231bfd"
+    },
+    {
+      "bytes": 7771,
+      "name": "REDACTION-REPORT.md",
+      "sha256": "399354e5b99e69fc0ccaca740ceb6ee16d4963053c81206f504869645ca267ce"
+    }
+  ],
+  "bank": "hermes",
+  "counts": {
+    "documents": 866,
+    "facts": 13785,
+    "knowledge_pages": 8,
+    "mental_models": 7,
+    "observations": 8975
+  },
+  "generated_at": "2026-09-29T10:34:15Z",
+  "hindsight": {
+    "admin": "hindsight-admin",
+    "version": "0.9.1"
+  },
+  "how_to_restore": [
+    "hindsight-admin import-bank --archive seed/hindsight-bank.zip --target-bank <name>",
+    "tar xzf seed/sedna-kb.tar.gz -C \"$SEDNA_KB_ROOT\""
+  ],
+  "schema": 1,
+  "sedna": {
+    "kb_root": "$HOME/.hermes/knowledge/sedna",
+    "members": [
+      "semantic_bundles",
+      "manifests",
+      "semantic_verification",
+      "semantic_compilation_guards",
+      "promotion_publication_guards",
+      "report-registry.json",
+      "quarantine",
+      "semantic_quarantine"
+    ]
+  }
+}
