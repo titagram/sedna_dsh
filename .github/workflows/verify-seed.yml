@@ -41,3 +41,70 @@ jobs:
       # The same script a contributor runs locally, so "it passes here" means something.
       - name: All checks
         run: bash tests/run-all.sh
+
+
+  # The two platforms this stack claims and this machine cannot run. Docker Desktop is not
+  # available on GitHub's macOS runners and Linux containers do not run on Windows runners, so
+  # the full stack cannot be exercised here. What can be is everything a user meets *before* a
+  # container starts: the shell they have, the bytes git gave them, and how the installer behaves
+  # on a machine without Docker. That is a smaller claim than "it runs there", and it is measured
+  # instead of argued -- which is the difference this repository has been paying attention to.
+  host:
+    name: host scripts on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: What this machine actually provides
+        shell: bash
+        run: |
+          printf 'shell: %s\n' "$(bash --version | head -1)"
+          printf 'host:  %s %s\n' "$(uname -s)" "$(uname -m)"
+
+      # GitHub's Windows runners run bash as Git Bash, which is what a Windows user has. On
+      # macOS the interesting fact is that /bin/bash is 3.2.57 and has been since 2007, so the
+      # scripts are checked against that exact interpreter rather than against a Homebrew bash
+      # that might be earlier in PATH.
+      - name: The shell macOS ships, on macOS itself
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          /bin/bash --version | head -1
+          for f in install.sh compose/*.sh; do /bin/bash -n "$f" || exit 1; done
+          echo "every host script parses under the bash macOS actually has"
+
+      # Reproducing the condition rather than trusting the rule. A Windows user with the Git for
+      # Windows default (core.autocrlf=true) receives a working tree this repository must not
+      # have: the .env.example line-ending bug in this project's history was invisible on Linux
+      # and would have delivered every value with a trailing \r. Re-materialising the tree with
+      # that setting is what turns the .gitattributes rule into something tested.
+      - name: The checkout a Windows user with autocrlf=true receives
+        shell: bash
+        run: |
+          git config core.autocrlf true
+          git rm -r --cached . >/dev/null 2>&1
+          git reset --hard >/dev/null 2>&1
+          cr="$(printf '\r')"
+          if LC_ALL=C grep -ql "$cr" install.sh compose/.env.example; then
+            echo "::error::a shipped script or value file arrived with CRLF"; exit 1
+          fi
+          echo "pinned files are LF even with autocrlf=true"
+
+      - name: The installer on a machine without Docker
+        shell: bash
+        run: |
+          out="$(bash install.sh --dry-run 2>&1 || true)"
+          printf '%s\n' "$out" | head -12
+          case "$out" in
+            *"dry run finished"*) echo "completed -- Docker is present on this runner" ;;
+            *ocker*)              echo "refused, and named Docker as the reason -- correct here" ;;
+            *) echo "::error::install.sh neither ran nor explained why"; exit 1 ;;
+          esac
+
+      - name: Host-script portability
+        shell: bash
+        run: bash tests/test_portability.sh
