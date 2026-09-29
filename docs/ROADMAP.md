@@ -53,14 +53,22 @@ Still open on that path:
   containers is a documentation job with a clear finish line, and it is the last file in the
   repository that describes the stack that was replaced.
 
-* **arm64 can be proven on this machine; macOS and Windows cannot.** The images are multi-arch
-  (Hindsight, pgvector and the Node base all publish arm64), so `docker run --privileged --rm
-  tonistiigi/binfmt --install arm64` plus `DOCKER_DEFAULT_PLATFORM=linux/arm64` would boot the
-  stack emulated and answer the question "does it run on arm64" without a Mac. It proves the
-  *images and the composition*, not Docker Desktop on macOS or Windows, which remain the only
-  claims in the README that rest on an argument rather than a measurement. The DSH image build
-  under emulation is slow and the seed import would be glacial: the target is "pulls, boots,
-  serves `/health`, the GUI answers", not a full ingest.
+* **arm64: partially proven here, and one trap cost a wasted attempt.** What is measured: the
+  arm64 variants of all three base images exist and pull (`hindsight:0.9.2`, `pgvector:pg17`,
+  `node:24-bookworm-slim`), and PostgreSQL and Hindsight run as **genuine arm64 containers**
+  under QEMU emulation — proven not by `uname`, which the emulator overrides to report the
+  emulated architecture, but by the ELF header of `/bin/sh` inside the container (`b7 00` =
+  AArch64, against `3e 00` in an amd64 container), and by `.ImageManifestDescriptor.Platform`,
+  which is the per-container platform; `docker image inspect <tag>.Architecture` is not, because
+  it reports the index's *default* platform and will contradict the container.
+  Hindsight answers `/health` **200** emulated. Not yet measured: that the DSH image builds and
+  boots for arm64 — the engine's audit on arm64 is the interesting part, and the seed's bank
+  import would take hours emulated, so the target is "builds, boots, audits the knowledge base".
+  The trap: `docker build --platform linux/arm64` fails at a `COPY` with "does not provide the
+  specified platform (linux/arm64)" on this host, because **`docker buildx` is not installed**
+  and the legacy builder cannot cross-build. The error reads like a Dockerfile bug and is not
+  one. `docker compose build` works because Compose carries its own buildx; a single-platform
+  build without an explicit `--platform` is unaffected either way.
 
 ## Defects a user meets
 
