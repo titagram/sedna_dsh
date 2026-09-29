@@ -13,9 +13,20 @@
 #   * the inbox is SEDNA_INBOX, default /inbox, and the argument is "source", absolute;
 #   * both /v1 and native mode reach the engine identically before any model call.
 #
-# Next: find the path that classifies as a candidate, then the two assertions -- an
-# OpenAI-compatible request on /v1/chat/completions carrying Authorization, and a native one on
-# Ollama's own endpoint without it.
+# Next, and the path hypothesis is now falsified: six candidate locations were tried -- the inbox
+# root, case_steps, references, negative_cases, decision_guidance and canonical/case_steps -- and
+# all six are quarantined identically, so classification is not what is missing here. What is
+# missing is whatever the foundation gate actually checks, and it reports no reason code while
+# refusing. Two leads, in order: the gate's condition (the disposition string is not in
+# site-packages, so look where it is composed) and whether a candidate must arrive with
+# front matter describing itself.
+#
+# The measurement that falsified the path hypothesis had two defects of its own -- a recorder
+# server that died on an undefined variable, and a label that printed a path it had not sent --
+# so its "no provider calls" figure proves nothing and is not being treated as evidence.
+#
+# Then: the two assertions -- an OpenAI-compatible request on /v1/chat/completions carrying
+# Authorization, and a native one on Ollama's own endpoint without it.
 #
 # "Point the stack at Ollama cloud, at any OpenAI-compatible endpoint, or at a local model" is one
 # environment variable and no adapter, according to three documents -- and until now nothing
@@ -39,7 +50,41 @@ fi
 
 work=$(mktemp -d); trap 'rm -rf "$work"; [ -n "${rec_pid:-}" ] && kill "$rec_pid" 2>/dev/null' EXIT
 kb="$work/kb"; mkdir -p "$kb/inbox"; chmod 700 "$kb"
-printf '# Probe source\n\nA sentence that is not knowledge.\n' > "$kb/inbox/probe.md"
+cat > "$kb/inbox/probe.md" <<'DOC'
+# Lab case: reaching a service account's key material from a web application
+
+## Situation
+
+A Linux host exposing an HTTP application on port 8080, running as a service account with a home
+directory that the application can read. The application offers file upload and a template
+renderer whose output is returned to the caller.
+
+## Observation
+
+The renderer resolved a path outside its configured template directory when the path was supplied
+through the upload name field, and returned the file contents in the response body. The service
+account's home directory contained a configuration file with a key in plain text.
+
+## Approach
+
+1. Confirm the parameter is reflected: upload a benign file and request the template by name.
+2. Establish the traversal depth needed to leave the template root, one level at a time, until the
+   response differs from the expected error.
+3. Read a known, harmless file to confirm disclosure without touching credential material.
+4. Report the parameter and the depth, and stop -- the objective was the access, not the contents.
+
+## Why it worked
+
+The application validated the template name against the upload directory but resolved the final
+path after the check, so the check and the use disagreed. Nothing in the deployment re-validated
+the resolved path against the permitted root.
+
+## Negative case
+
+The same parameter submitted with an absolute path was rejected by an earlier filter: the filter
+matched on a leading separator and was never reached by a relative traversal, so testing only the
+absolute form would have reported the endpoint as safe.
+DOC
 
 cat > "$work/recorder.py" <<'PY'
 import http.server, json, sys
