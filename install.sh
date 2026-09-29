@@ -104,7 +104,13 @@ fi
 PORT="${PORT_OVERRIDE:-$(env_value DSH_PORT 2>/dev/null || true)}"
 PORT="${PORT:-3080}"
 if port_in_use "$PORT"; then
-    fail "port $PORT on 127.0.0.1 is already taken -- something else is serving there. Use --port <other>, or stop it"
+    # A dry run describes what would happen; it should not fail because of the environment it
+    # describes, or it stops being runnable exactly where it is most useful.
+    if $DRY_RUN; then
+        warn "port $PORT on 127.0.0.1 is already taken: a real run would stop here"
+    else
+        fail "port $PORT on 127.0.0.1 is already taken -- something else is serving there. Use --port <other>, or stop it"
+    fi
 fi
 say "   web interface will listen on 127.0.0.1:$PORT"
 

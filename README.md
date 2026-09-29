@@ -136,7 +136,7 @@ that stricter line.
 
 See `DEPENDENCIES.md` for what the installer provides, what it expects to find, and the
 tools of the offensive workflow that are deliberately *not* installed (HexStrike among
-them). `tools/doctor.sh` checks a machine against that list and says what is missing.
+them), and `install.sh` checks for it before doing anything else.
 
 ## Making an agent use it
 
@@ -165,16 +165,13 @@ Two pipelines, because there are two kinds of thing here:
 
 ```
 install.sh              one entry point; every step is verifiable and idempotent
-lib/00-common.sh        logging, dry-run, version checks, state file
-lib/10-prereqs.sh       node >= 24.2, python >= 3.11, git/curl/tar
-lib/20-dsh.sh           pinned install of @deepseek-ai/dsh, profile creation
-lib/30-settings.sh      merges a model provider into settings.yaml (backup first)
-lib/40-plugin.sh        plugin files, the host row, the skills
-lib/50-engine.sh        vendored engine + virtualenv + import check
-lib/60-kb.sh            unpacks the knowledge base seed
-lib/70-hindsight.sh     daemon, environment, bank import
-lib/80-services.sh      two systemd --user units, without stomping existing ones
-lib/90-verify.sh        asks the running stack whether it works
+install.sh              the entry point: checks Docker, creates .env once, starts the stack
+compose/                the stack itself: docker-compose.yml, the DSH image, verify.sh, the backup
+plugin/sedna/           the Cordis plugin that exposes the sedna_* tools
+engine/                 the Sedna engine (vendored), imported by the plugin inside the container
+seed/                   the Hindsight bank archive and the knowledge base, loaded on a first start
+tools/                  seed tooling: the fail-closed gate, the manifest, the sanitizer
+tests/                  what CI runs: the same suite you can run locally
 plugin/sedna/           the Cordis plugin (index.mjs, driver.py) as it runs today
 engine/                 vendored Sedna engine (upstream: titagram/sedna)
 preset/pentest/skills/  the skills that make the tools usable

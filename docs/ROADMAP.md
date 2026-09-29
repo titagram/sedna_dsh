@@ -46,6 +46,13 @@ Still open on that path:
   schedule — a sleeping loop in a container, not something the operating system owns. A cron
   on the host calling `backup once` would be the honest production shape.
 
+* **`DEPENDENCIES.md` still reasons about the host installer.** Its table was written for the
+  bash + systemd path and is now prefixed with a note saying so. The version floors and the
+  reasons for them are still true and worth keeping; the *mechanisms* column describes steps
+  that no longer exist (`lib/10-prereqs.sh`, `lib/70-hindsight.sh`). Rewriting it against the
+  containers is a documentation job with a clear finish line, and it is the last file in the
+  repository that describes the stack that was replaced.
+
 ## Defects a user meets
 
 * **The shipped bridge skill describes the author's machine.** `lib/40-plugin.sh` copies

@@ -6,7 +6,7 @@ records what came from where. Every licence below was read from the artifact its
 
 ## This repository's own code
 
-`install.sh`, `lib/`, `tools/`, `tests/`, `plugin/`, `docs/` — **MIT**, see `LICENSE`.
+`install.sh`, `compose/`, `tools/`, `tests/`, `plugin/`, `docs/` — **MIT**, see `LICENSE`.
 That is the same licence as every component below, which is not a coincidence: this
 repository exists to distribute them together.
 

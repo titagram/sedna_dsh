@@ -1,3 +1,10 @@
+> **The table below describes the earlier host installer, which this repository no longer
+> ships.** The Compose stack's only host dependency is **Docker with the Compose v2 plugin**:
+> Node, Python, git, curl and tar live inside the images (`compose/dsh/Dockerfile` installs
+> them), and there are no systemd units to write. The rows are kept because the reasoning in
+> them is still the record of why each version floor exists, not because they still apply.
+> Rewriting them against the containers is outstanding work — see `docs/ROADMAP.md`.
+
 # Dependencies
 
 What this repository installs itself, what it expects to find already on the machine,
