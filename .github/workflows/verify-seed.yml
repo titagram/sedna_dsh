@@ -18,6 +18,14 @@ on:
 permissions:
   contents: read
 
+# One run per branch, newest wins. Without this, every push queues another five-job run and they
+# accumulate against the account's concurrency limit -- which is how this workflow ended up with
+# six runs queued and the macOS experiment sitting behind them for hours. The queue was partly
+# self-inflicted, and a workflow that cannot see that about itself will keep doing it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
