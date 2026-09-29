@@ -115,6 +115,25 @@ else
     echo "  skip bash 3.2 -- image unavailable, the syntax check did NOT run"
 fi
 
+# Windows again, and again by asking git rather than guessing: `git check-attr` is the same
+# resolution git uses at checkout, so it answers "will this arrive with CRLF" instead of leaving
+# it to whoever remembers what core.autocrlf does. A value file with a trailing \r per line is
+# not a visible breakage -- the numbers and URLs read correctly -- which is what makes it worth
+# a test rather than a careful reader.
+echo "== what a Windows checkout would deliver"
+if git rev-parse --git-dir >/dev/null 2>&1; then
+    for f in $(git ls-files '*.env*' '*.sh' '*.yml' '*.yaml' '*.py' 'Dockerfile' '*.json' '*.sql'); do
+        eol="$(git check-attr eol -- "$f" | sed 's/.*: eol: //')"
+        if [ "$eol" != "lf" ]; then
+            echo "  FAIL $f arrives as eol=$eol -- it needs an explicit eol=lf rule"
+            fail=1
+        fi
+    done
+    echo "  ok   every shipped script and value file is pinned to LF"
+else
+    echo "  skip not a git checkout -- the line-ending check did NOT run"
+fi
+
 if [ "$fail" -eq 0 ]; then
     echo "  ok   $checked host script(s) portable, $skipped container script(s) exempt"
     echo "portability ok"

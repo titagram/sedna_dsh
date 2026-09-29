@@ -15,3 +15,10 @@ Dockerfile text eol=lf
 *.md text eol=lf
 *.mjs text eol=lf
 *.sql text eol=lf
+
+# Dotenv files are values, not prose. Git for Windows defaults to core.autocrlf=true, and without
+# an explicit rule .env.example was checked out with CRLF -- so every value a user copied into
+# .env carried a trailing \r: a model name or provider URL that reads correctly in the editor
+# and can never work. The same applies to any other file whose bytes are data.
+.env* text eol=lf
+*.env text eol=lf
