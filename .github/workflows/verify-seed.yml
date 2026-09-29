@@ -108,3 +108,49 @@ jobs:
       - name: Host-script portability
         shell: bash
         run: bash tests/test_portability.sh
+
+
+  # Native arm64, not emulated: the container layer on an arm64 machine, which is the half of the
+  # arm64 claim QEMU could never make. The seed's Hindsight import takes about 35 minutes and does
+  # not fit in CI, so the knowledge base is unpacked straight from the seed and used as it is: the
+  # engine, the index and the retrieval run on real arm64, the bank import does not.
+  arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: What this machine actually is
+        run: |
+          uname -m
+          docker version --format 'server: {{.Server.Arch}}'
+
+      - name: Build the DSH image here
+        working-directory: compose
+        run: docker compose build dsh
+
+      - name: The engine, on arm64, against a knowledge base
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/kb
+          tar xzf seed/sedna-kb.tar.gz -C /tmp/kb
+          chmod 700 /tmp/kb
+          run_op() {
+            docker run --rm -i -v /tmp/kb:/data/kb --entrypoint /opt/sedna/venv/bin/python \
+              sedna-stack-dsh:latest /opt/sedna/driver.py
+          }
+          echo '{"op":"maintenance","args":{"operation":"audit"}}'    | run_op > /tmp/audit.json
+          echo '{"op":"maintenance","args":{"operation":"rebuild"}}'  | run_op > /tmp/rebuild.json
+          echo '{"op":"retrieve","args":{"target":"10.10.14.5","authorization_state":"authorized","exact_targets":["10.10.14.5"],"query_terms":["privilege escalation"]}}' | run_op > /tmp/retrieve.json
+          python3 - <<'PY'
+          import json
+          audit   = json.load(open("/tmp/audit.json"))["data"]["report"]
+          rebuild = json.load(open("/tmp/rebuild.json"))["data"]["report"]
+          lane    = json.load(open("/tmp/retrieve.json"))["data"]
+          assert audit["succeeded"] and audit["canonical_source_count"] == 94, audit
+          assert rebuild["succeeded"] and rebuild["indexed_artifact_count"] > 0, rebuild
+          lanes = {k: len(lane.get(k) or []) for k in
+                   ("references", "case_steps", "negative_cases", "decision_guidance")}
+          assert sum(lanes.values()) > 0, lanes
+          print("native arm64: %d canonical sources, %d artifacts indexed, lanes %s"
+                % (audit["canonical_source_count"], rebuild["indexed_artifact_count"], lanes))
+          PY
