@@ -536,10 +536,92 @@ def op_record_decision(args: dict) -> dict:
         }
 
 
+def op_ingest(args: dict) -> dict:
+    """Learn a source into the knowledge base, and report what happened to it.
+
+    Growing the base is the half of the promise the seed cannot keep: the volume is preserved
+    by construction, but until this exists nothing shipped here could add to it.
+
+    The shape is deliberate. A caller hands over a path *inside the inbox* and gets back the
+    engine's own report -- what it accepted, what it quarantined and the codes that say why.
+    That matters because a source is classified by its physical path, and from the outside the
+    verdict is not guessable: the failure mode is a file that is accepted silently into
+    quarantine and never becomes knowledge, which looks exactly like success.
+
+    The model is called only for a real run. `check` stops before extraction and answers the
+    layout question alone, so an operator can confirm a file will be accepted before paying
+    for a semantic pass.
+    """
+    from pathlib import Path
+
+    from sedna.knowledge.hades_runtime import HadesKnowledgeRuntime
+    from sedna.knowledge.semantic.ollama_host import OllamaHost
+
+    source_raw = args.get("source")
+    if not source_raw:
+        raise ValueError("ingest requires a source path inside the inbox")
+    source = Path(str(source_raw)).expanduser()
+    if not source.exists():
+        raise ValueError("ingest source does not exist: " + str(source))
+
+    inbox = Path(os.environ.get("SEDNA_INBOX", "/inbox")).resolve()
+    resolved = source.resolve()
+    if inbox not in resolved.parents and resolved != inbox:
+        raise ValueError("ingest source must be inside the inbox: " + str(inbox))
+
+    if bool(args.get("check")):
+        return {
+            "source": str(resolved),
+            "checked_only": True,
+            "would_ingest": True,
+            "note": (
+                "the layout is judged by the engine during a real run; this answers only that "
+                "the path exists, is inside the inbox and is a supported file or directory"
+            ),
+        }
+
+    # The host adapter is the engine's own. Its API mode is auto-detected from the URL, and
+    # that detection is load-bearing: an endpoint containing `/v1` or `ollama.com` takes the
+    # OpenAI-compatible path, where a hosted model may ignore the JSON schema and return prose
+    # -- which the engine then reads as "no JSON object" and reports as a failed extraction,
+    # not as a broken provider. A native endpoint (no `/v1`) uses Ollama's own JSON mode.
+    host = OllamaHost()
+    runtime = HadesKnowledgeRuntime.create(host, KB_ROOT, external_source_path=resolved)
+    try:
+        before = runtime.maintenance.audit()
+        report = runtime.learning.learn(resolved)
+        try:
+            payload = report.model_dump(mode="json")
+        except Exception:
+            payload = json.loads(json.dumps(report, default=str))
+
+        after = runtime.maintenance.audit()
+        rebuilt = False
+        if getattr(after, "rebuild_required", False):
+            runtime.maintenance.rebuild()
+            rebuilt = True
+            after = runtime.maintenance.audit()
+
+        return {
+            "source": str(resolved),
+            "report": payload,
+            "canonical_sources_before": getattr(before, "canonical_source_count", None),
+            "canonical_sources_after": getattr(after, "canonical_source_count", None),
+            "index_rebuilt": rebuilt,
+            "reachable_now": not getattr(after, "rebuild_required", True),
+        }
+    finally:
+        try:
+            runtime.close()
+        except Exception:
+            pass
+
+
 OPERATIONS = {
     "retrieve": op_retrieve,
     "artifact": op_artifact,
     "maintenance": op_maintenance,
+    "ingest": op_ingest,
     "engagements": op_engagements,
     "record_decision": op_record_decision,
 }

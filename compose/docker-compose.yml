@@ -113,10 +113,19 @@ services:
       SEDNA_PYTHON: /opt/sedna/venv/bin/python
       SEDNA_DRIVER: /opt/sedna/driver.py
       SEDNA_SEED_DIR: /seed
-      # Ingest is the only stage that needs a model. Same provider choice as the rest.
-      SEDNA_OLLAMA_URL: ${SEDNA_OLLAMA_URL:-}
-      SEDNA_OLLAMA_MODEL: ${SEDNA_OLLAMA_MODEL:-}
+      # Ingest is the only stage that needs a model, and it is the one place where the URL's
+      # *shape* decides behaviour: the engine takes the OpenAI-compatible path when the URL
+      # contains `/v1` or `ollama.com`, and the native Ollama path otherwise. A hosted model on
+      # the OpenAI path may ignore the JSON schema and answer in prose, which the engine reads
+      # as a failed extraction rather than as a broken provider. The native path asks Ollama
+      # for JSON directly. So the default here is deliberately without `/v1`.
+      SEDNA_OLLAMA_URL: ${SEDNA_OLLAMA_URL:-http://host.docker.internal:11434}
+      SEDNA_OLLAMA_MODEL: ${SEDNA_OLLAMA_MODEL:-gpt-oss:120b-cloud}
+      SEDNA_OLLAMA_TIMEOUT: ${SEDNA_OLLAMA_TIMEOUT:-600}
       SEDNA_OLLAMA_API_KEY: ${SEDNA_OLLAMA_API_KEY:-}
+      # The inbox: where an operator drops something to add to the knowledge base. It is the
+      # only writable input, and the ingest operation refuses a path outside it.
+      SEDNA_INBOX: /inbox
       # The name settings.yaml refers to via apiKeyEnv, so one value in .env serves both.
       OLLAMA_API_KEY: ${LLM_API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
@@ -128,6 +137,7 @@ services:
       - kb:/data/kb
       - ${SEED_DIR:-../seed}:/seed:ro
       - ${WORKSPACE_DIR:-..}:/workspace
+      - ${INBOX_DIR:-./inbox}:/inbox
     extra_hosts:
       - "host.docker.internal:host-gateway"
     security_opt:

@@ -1,3 +1,6 @@
+> The shipped stack now exposes this pipeline as an operation: see "Adding knowledge" in
+> `compose/README.md`. This file remains the description of what the pipeline does.
+
 # Adding knowledge to the base
 
 The seed in this repository is a starting point. This is how it stops being the whole base.

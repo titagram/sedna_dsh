@@ -86,7 +86,8 @@ RUN chmod +x /opt/sedna/bootstrap-kb.sh /opt/sedna/entrypoint.sh
 # image's directory at that path, ownership included: without them the volumes arrive owned by
 # root and the container user cannot write the knowledge base or the sessions.
 RUN mkdir -p /workspace /data/kb /home/node/.dsh /opt/dsh/bootcheck \
- && chown -R node:node /workspace /data/kb /home/node
+ && chown -R node:node /workspace /data/kb /home/node \
+ && chmod 700 /data/kb
 
 ENV DSH_HOME=/home/node/.dsh \
     DSH_SEDNA_DIR=/opt/sedna \

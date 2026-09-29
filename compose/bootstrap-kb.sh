@@ -25,6 +25,19 @@ DRIVER="${SEDNA_DRIVER:-/opt/sedna/driver.py}"
 PYTHON="${SEDNA_PYTHON:-python3}"
 
 log() { printf '[kb] %s\n' "$*" >&2; }
+
+# The engine's engagement repository validates the knowledge root's mode by *equality*:
+# `_validate_directory(self._root_fd, label="knowledge root", expected_mode=0o700)`. A fresh
+# volume inherits the image directory's 0755, so every journal-backed operation -- including
+# ingest -- fails with "knowledge root has an unsafe mode" while retrieval keeps working,
+# which makes it look like a plugin problem rather than a permissions one. Enforced here as
+# well as in the image, because a volume created by an older image keeps its mode.
+if [[ -d "$KB_ROOT" ]]; then
+    current="$(stat -c '%a' "$KB_ROOT" 2>/dev/null || echo unknown)"
+    if [[ "$current" != "700" ]]; then
+        chmod 700 "$KB_ROOT" && log "knowledge root mode $current -> 700 (the engine requires exactly this)"
+    fi
+fi
 fail() { printf '[kb] error: %s\n' "$*" >&2; exit 1; }
 
 [[ -f "$DRIVER" ]] || fail "engine driver not found at $DRIVER"

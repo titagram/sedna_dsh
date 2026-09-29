@@ -111,6 +111,41 @@ the bootstrap only fills an empty volume, so adding to it never collides with `g
 What the pipeline actually is, and the two traps that make "point it at a file" the wrong
 interface, are in `docs/adding-knowledge.md`.
 
+## Adding knowledge
+
+The knowledge base is a volume, not a frozen seed: the bootstrap only ever fills an empty one,
+and never touches a base that already holds something. To add to it, drop a source in the
+inbox and ingest it:
+
+```sh
+mkdir -p inbox/write-ups/machines/YourBox
+$EDITOR inbox/write-ups/machines/YourBox/YourBox.md
+docker compose exec dsh /opt/sedna/venv/bin/python /opt/sedna/driver.py <<'JSON'
+{"op":"ingest","args":{"source":"/inbox/write-ups/machines/YourBox/YourBox.md"}}
+JSON
+```
+
+You get back the engine's own verdict per source — `verified`, `unchanged`, `quarantined` or
+`failed`, with reason codes. **Read it.** A source is classified by its physical path, and the
+failure that matters is not a refusal you can see: it is a file that is accepted into a
+quarantine nobody looks at and never becomes knowledge, which looks exactly like success. The
+layout above is the one this has been exercised with.
+
+The model matters, and not in the way the provider list suggests. Ingest is the one stage that
+sends a **JSON schema** to the model; a model that answers in prose instead fails semantic
+validation and the source is reported as `invalid_structured_response`. Measured here, against
+Ollama Cloud through a local daemon:
+
+| model | result |
+| --- | --- |
+| `glm-5.3:cloud` | `verified` — the source became knowledge |
+| `gpt-oss:120b-cloud` | `invalid_structured_response` — ignores the schema |
+| `qwen3.5:397b-cloud` | `transport_failure` |
+
+That is why `SEDNA_OLLAMA_URL` is deliberately **without** `/v1`: a URL containing `/v1` or
+`ollama.com` selects the OpenAI-compatible path, where the schema is advisory; the native path
+asks Ollama to constrain the output. The provider axis in `.env` is otherwise free.
+
 ## Backing up
 
 The bank grows without bound and does not belong in git, so it is exported as a portable
