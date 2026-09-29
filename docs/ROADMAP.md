@@ -61,7 +61,12 @@ Still open on that path:
   AArch64, against `3e 00` in an amd64 container), and by `.ImageManifestDescriptor.Platform`,
   which is the per-container platform; `docker image inspect <tag>.Architecture` is not, because
   it reports the index's *default* platform and will contradict the container.
-  Hindsight answers `/health` **200** emulated. The DSH image **builds and boots for arm64**: the build's own gate reports "DSH boots with the sedna-bridge row mounted" under emulation, `dsh --version` answers 0.1.5-rc.2, and Node's `process.arch` says `arm64` -- a value that comes from the binary, not from `uname`, so the emulator cannot fake it. Still unmeasured: the engine's audit on arm64 with a knowledge base, and the seed's bank import, which would take hours emulated.
+  Hindsight answers `/health` **200** emulated. The DSH image **builds and boots for arm64**: the build's own gate reports "DSH boots with the sedna-bridge row mounted" under emulation, `dsh --version` answers 0.1.5-rc.2, and Node's `process.arch` says `arm64` -- a value that comes from the binary, not from `uname`, so the emulator cannot fake it. **The engine works on arm64, measured**: the audit
+  reports 94 canonical sources, the index rebuild succeeds with 675 artifacts indexed, and a
+  retrieval returns all four lanes populated with no knowledge gap -- the same shape as on
+  amd64. The rebuild took 211 s emulated against 24.5 s native, so budget roughly 9x for
+  anything run under QEMU on this machine. Still unmeasured on arm64: the seed's bank import,
+  which at that ratio would take hours -- a deliberate omission, not an oversight.
   The trap: `docker build --platform linux/arm64` fails at a `COPY` with "does not provide the
   specified platform (linux/arm64)" on this host, because **`docker buildx` is not installed**
   and the legacy builder cannot cross-build. The error reads like a Dockerfile bug and is not
