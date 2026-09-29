@@ -204,7 +204,11 @@ jobs:
           PY
 
   macos-docker:
-    runs-on: macos-latest
+    # macOS Intel rather than arm64, for two reasons. GitHub states that arm64 macOS runners
+    # are capacity constrained and queue for a long time -- measured, in an annotation -- and
+    # every macOS measurement in this repository so far is arm64. The macOS-specific
+    # behaviour here is file sharing and bind mounts, which is the same question on both.
+    runs-on: macos-13
     # An experiment, aimed at the one claim this repository still cannot measure: the container
     # layer on macOS. Non-blocking on purpose -- a red job here must not make the verified state
     # look broken while the approach is still being found.
