@@ -76,11 +76,13 @@ class OllamaHost:
         timeout: float = _DEFAULT_TIMEOUT,
         api_key: str | None = None,
         api_mode: str | None = None,
+        chat_template_kwargs: Mapping[str, object] | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._timeout = timeout
         self._api_key = api_key if api_key is not None else _DEFAULT_API_KEY
+        self._chat_template_kwargs = dict(chat_template_kwargs or {})
         # "native" = Ollama's /api/chat endpoint (local). "openai" =
         # OpenAI-compatible /v1/chat/completions (Ollama Cloud, remote).
         # Auto-detect: a base_url containing "ollama.com" or "://api" is remote
@@ -164,6 +166,8 @@ class OllamaHost:
                 payload["response_format"] = response_format
             else:
                 payload["response_format"] = {"type": "json_object"}
+            if self._chat_template_kwargs:
+                payload["chat_template_kwargs"] = self._chat_template_kwargs
             url = f"{self._base_url}/chat/completions"
             headers = {"Content-Type": "application/json"}
             if self._api_key:

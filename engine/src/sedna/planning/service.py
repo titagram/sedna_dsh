@@ -165,7 +165,7 @@ from sedna.planning.retrieval import (
     assemble_planner_knowledge,
     digest_hindsight_candidates,
 )
-from sedna.planning.situation import SituationReducer
+from sedna.planning.situation import SituationReducer, planner_situation_view
 from sedna.planning.utility import rank_utilities, utility_input_for_proposal
 
 # The conversion index is bounded by the contract (512 items).
@@ -204,6 +204,23 @@ def _is_unrepairable_planner_violation(exc: BaseException) -> bool:
 
 class _PlanningLlmUnavailableError(RuntimeError):
     """Internal boundary marker for planner-host failures only."""
+
+
+class _PlannerDraftInvalidError(RuntimeError):
+    """Internal marker for a completion that arrived but failed its schema.
+
+    Distinct from _PlanningLlmUnavailableError on purpose. That one means the
+    host never answered -- a transport fact, and the only thing that justifies
+    publishing `llm_unavailable`. This one means the model answered and the
+    answer did not match the closed response contract: the model is reachable
+    and the draft is wrong. Both are exhausted attempts, but they are different
+    facts, and collapsing them into `llm_unavailable` records "the model is
+    unavailable" while a model is in fact talking to us.
+
+    The distinction is what the journal needs to learn from: a run of
+    schema-invalid drafts is evidence about the model-facing contract, and it
+    is invisible if it is filed as unavailable-host.
+    """
 
 
 class PlanningService:
@@ -288,6 +305,13 @@ class PlanningService:
                 )
             except _PlanningLlmUnavailableError:
                 return self._publish_llm_unavailable_gap(lane)
+            except _PlannerDraftInvalidError as exc:
+                # The model answered and the answer failed its schema. That is an
+                # exhausted attempt, not a transport failure: record it as a
+                # retryable invalid draft so the journal shows *why* the planner
+                # produced nothing, instead of losing the diagnosis in an
+                # uncaught exception.
+                return self._publish_invalid_draft_gap(lane, str(exc)[:600])
         raise AssertionError("bounded planning restart exhausted")
 
     def _publish_llm_unavailable_gap(self, lane: ExecutionLaneKey) -> PlanningResult:
@@ -531,9 +555,9 @@ class PlanningService:
         try:
             return self._llm.complete(model_type, **kwargs)
         except PlanningLlmError as exc:
-            if exc.reason_code != "transport_failure":
-                raise
-            raise _PlanningLlmUnavailableError from exc
+            if exc.reason_code == "transport_failure":
+                raise _PlanningLlmUnavailableError from exc
+            raise _PlannerDraftInvalidError(str(exc)) from exc
 
     def _plan_next_once(
         self,
@@ -702,7 +726,7 @@ class PlanningService:
             PlannerDraft,
             instructions=PLANNER_PROMPT,
             payload=PlannerRequest(
-                situation=situation,
+                situation=planner_situation_view(situation),
                 ledger=replay.ledger,
                 knowledge_context=knowledge_context,
                 scope_references=snapshot.state.scope_references,

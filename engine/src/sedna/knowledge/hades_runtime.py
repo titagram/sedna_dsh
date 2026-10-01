@@ -267,8 +267,9 @@ class HadesKnowledgeRuntime:
 class _BoundStructuredHost:
     """One immutable structured-completion callable captured during runtime preflight."""
 
-    def __init__(self, complete_structured: Callable[..., object]) -> None:
+    def __init__(self, complete_structured: Callable[..., object], *, accepts_schema: bool) -> None:
         self._complete_structured = complete_structured
+        self.accepts_schema = accepts_schema
 
     def complete_structured(self, **kwargs: object) -> object:
         return self._complete_structured(**kwargs)
@@ -401,7 +402,13 @@ def _require_structured_host(host_llm: object) -> HostStructuredLlm:
         complete_structured = None
     if not callable(complete_structured):
         raise TypeError("host_llm must provide callable complete_structured")
-    return cast(HostStructuredLlm, _BoundStructuredHost(complete_structured))
+    return cast(
+        HostStructuredLlm,
+        _BoundStructuredHost(
+            complete_structured,
+            accepts_schema=bool(getattr(host_llm, "accepts_schema", False)),
+        ),
+    )
 
 
 def _close_owned(

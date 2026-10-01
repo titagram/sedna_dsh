@@ -53,6 +53,45 @@ from sedna.planning.models import (
 
 _EMPTY_DIGEST = sha256(b"[]").hexdigest()
 
+# LLM context is intentionally smaller than the canonical journal projection.
+# These are transport-view caps, never retention limits for the journal/state.
+MAX_PLANNER_FACTS = 16
+MAX_PLANNER_FACETS = 16
+MAX_PLANNER_INTERPRETATIONS = 16
+MAX_PLANNER_ATTEMPTS = 16
+MAX_PLANNER_UNRESOLVED_INFORMATION = 16
+MAX_PLANNER_RESEARCH_SOURCES = 16
+
+
+def planner_situation_view(situation: SituationProjection) -> SituationProjection:
+    """Return a deterministic, bounded situation projection for an LLM planner.
+
+    This transport view leaves canonical state, digest, and provenance intact.
+    It retains the most recent bounded fact/facet/history records, puts pending
+    or failed interpretation states before completed audit states, and exposes
+    only credential labels (``available_credentials``), never secret locators.
+    """
+    interpretations = situation.interpretations
+    actionable = tuple(item for item in interpretations if item.status != "completed")
+    selected_actionable = actionable[:MAX_PLANNER_INTERPRETATIONS]
+    remaining = MAX_PLANNER_INTERPRETATIONS - len(selected_actionable)
+    completed = tuple(item for item in interpretations if item.status == "completed")
+    selected_interpretations = selected_actionable + (completed[-remaining:] if remaining else ())
+    return situation.model_copy(
+        update={
+            "facts": situation.facts[-MAX_PLANNER_FACTS:],
+            "facets": situation.facets[-MAX_PLANNER_FACETS:],
+            "unresolved_information": situation.unresolved_information[
+                -MAX_PLANNER_UNRESOLVED_INFORMATION:
+            ],
+            "research_sources": situation.research_sources[-MAX_PLANNER_RESEARCH_SOURCES:],
+            "interpretations": selected_interpretations,
+            "secret_references": (),
+            "attempts": situation.attempts[-MAX_PLANNER_ATTEMPTS:],
+        }
+    )
+
+
 SITUATION_EFFECT_EVENT_TYPES = frozenset(
     {
         EventType.EVIDENCE_ATTACHED,

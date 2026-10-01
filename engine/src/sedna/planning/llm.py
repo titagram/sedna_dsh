@@ -265,12 +265,14 @@ class PlanningLlmAdapter:
             )
             if len(serialized_payload.encode("utf-8")) > MAX_PLANNER_REQUEST_BYTES:
                 raise PlanningLlmError("planner_input_too_large")
+            response_schema_dict = model_type.model_json_schema()
             response_schema = json.dumps(
-                model_type.model_json_schema(),
+                response_schema_dict,
                 ensure_ascii=False,
                 separators=(",", ":"),
                 sort_keys=True,
             )
+            accepts_schema = bool(getattr(self._host, "accepts_schema", False))
         except PlanningLlmError:
             raise
         except Exception:
@@ -278,11 +280,15 @@ class PlanningLlmAdapter:
         try:
             host_result = self._host.complete_structured(
                 instructions=(
-                    f"{instructions}\n\nReturn one JSON object matching this schema exactly:\n"
-                    f"{response_schema}"
+                    instructions
+                    if accepts_schema
+                    else (
+                        f"{instructions}\n\nReturn one JSON object matching this schema exactly:\n"
+                        f"{response_schema}"
+                    )
                 ),
                 input=[{"type": "text", "text": serialized_payload}],
-                json_schema=None,
+                json_schema=response_schema_dict if accepts_schema else None,
                 json_mode=True,
                 schema_name=model_type.__name__,
                 temperature=0,

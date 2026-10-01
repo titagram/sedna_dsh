@@ -28,6 +28,129 @@ _DEFAULT_MODEL = os.environ.get("SEDNA_CODEX_MODEL", "gpt-5.5")
 _DEFAULT_BINARY = os.environ.get("SEDNA_CODEX_BIN", "codex")
 
 
+def _inline_schema_refs(schema: Mapping[str, object]) -> dict[str, object]:
+    """Return a copy with local ``$defs`` references expanded recursively.
+
+    Recursive models cannot be represented by Codex's ref-free strict dialect;
+    reject them explicitly instead of overflowing recursion or weakening output
+    constraints.
+    """
+    definitions = schema.get("$defs")
+    if not isinstance(definitions, Mapping):
+        definitions = {}
+
+    def definition_name(ref: str) -> str:
+        return ref.removeprefix("#/$defs/").replace("~1", "/").replace("~0", "~")
+
+    def visit(value: object, stack: tuple[str, ...] = ()) -> object:
+        if isinstance(value, list):
+            return [visit(item, stack) for item in value]
+        if not isinstance(value, Mapping):
+            return value
+        ref = value.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            name = definition_name(ref)
+            if name in stack:
+                raise ValueError("recursive_schema_not_supported")
+            target = definitions.get(name)
+            if isinstance(target, Mapping):
+                merged = {key: item for key, item in value.items() if key != "$ref"}
+                for key, item in target.items():
+                    merged.setdefault(key, item)
+                return visit(merged, (*stack, name))
+        return {key: visit(item, stack) for key, item in value.items() if key != "$defs"}
+
+    resolved = visit(schema)
+    assert isinstance(resolved, dict)
+    return resolved
+
+
+def _schema_allows_null(schema: object) -> bool:
+    if not isinstance(schema, Mapping):
+        return False
+    field_type = schema.get("type")
+    if field_type == "null" or (isinstance(field_type, list) and "null" in field_type):
+        return True
+    for key in ("anyOf", "oneOf"):
+        branches = schema.get(key)
+        if isinstance(branches, list) and any(_schema_allows_null(branch) for branch in branches):
+            return True
+    return False
+
+
+def _codex_strict_schema(schema: Mapping[str, object]) -> dict[str, object]:
+    """Translate a Pydantic schema to Codex's strict JSON-schema dialect.
+
+    Codex requires every object property to be listed in ``required``. Pydantic
+    represents defaulted optionals by omitting them; transport encodes those as
+    ``T | null`` and the inverse decoder restores absence before Pydantic sees
+    the response. This changes encoding only, never Sedna's canonical contract.
+    """
+    def strictify(value: object) -> object:
+        if isinstance(value, list):
+            return [strictify(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        out = {key: strictify(item) for key, item in value.items()}
+        properties = out.get("properties")
+        if isinstance(properties, dict):
+            original_required = set(out.get("required") or ())
+            out["properties"] = {
+                key: item if key in original_required else {"anyOf": [item, {"type": "null"}]}
+                for key, item in properties.items()
+            }
+            out["required"] = list(properties)
+            out["additionalProperties"] = False
+        return out
+
+    strict = strictify(_inline_schema_refs(schema))
+    assert isinstance(strict, dict)
+    return strict
+
+
+def _object_schema_for_value(schema: object, value: object) -> Mapping[str, object] | None:
+    """Choose a structural union branch for recursive transport decoding."""
+    if not isinstance(schema, Mapping):
+        return None
+    if isinstance(value, dict) and isinstance(schema.get("properties"), Mapping):
+        return schema
+    if isinstance(value, list) and "items" in schema:
+        return schema
+    for key in ("anyOf", "oneOf", "allOf"):
+        branches = schema.get(key)
+        if isinstance(branches, list):
+            for branch in branches:
+                selected = _object_schema_for_value(branch, value)
+                if selected is not None:
+                    return selected
+    return None
+
+
+def _restore_optional_nulls(value: object, schema: Mapping[str, object]) -> object:
+    """Decode strict transport's null sentinel into Pydantic optional absence."""
+    original = _inline_schema_refs(schema)
+
+    def restore(item: object, node: object) -> object:
+        selected = _object_schema_for_value(node, item)
+        if selected is None:
+            return item
+        if isinstance(item, list):
+            return [restore(member, selected.get("items", {})) for member in item]
+        properties = selected.get("properties")
+        if not isinstance(properties, Mapping):
+            return item
+        required = set(selected.get("required") or ())
+        return {
+            key: restore(member, properties.get(key, {}))
+            for key, member in item.items()
+            if member is not None or key in required or _schema_allows_null(
+                properties.get(key, {})
+            )
+        }
+
+    return restore(value, original)
+
+
 class CodexCliError(RuntimeError):
     """A transport-level failure from the local Codex CLI."""
 
@@ -114,6 +237,8 @@ class CodexCliHost:
                     json.dump(schema, fh, ensure_ascii=False)
             raw, events = self._run_codex(prompt, schema_path, eff_model)
         parsed = self._extract_parsed(events, raw)
+        if json_schema is not None:
+            parsed = _restore_optional_nulls(parsed, json_schema)
         usage = self._extract_usage(events)
         return CodexCliResult(
             parsed=parsed,
@@ -160,10 +285,10 @@ class CodexCliHost:
                 "type": "object",
                 "additionalProperties": False,
             }
-        out = dict(json_schema)
-        # Codex requires additionalProperties to be present and false.
-        out.setdefault("additionalProperties", False)
-        return out
+        # Codex accepts a strict JSON-Schema dialect: all declared properties
+        # are required and Pydantic's optional-default encoding must become
+        # explicit nullability at the transport boundary.
+        return _codex_strict_schema(json_schema)
 
     def _run_codex(
         self,
