@@ -64,8 +64,13 @@ SEDNA_SRC = os.environ.get("SEDNA_SRC") or CONFIG.get(
 )
 KB_ROOT = pathlib.Path(
     os.environ.get("SEDNA_KB_ROOT")
-    or CONFIG.get("knowledgeRoot", str(pathlib.Path.home() / ".hermes" / "knowledge" / "sedna"))
+    or CONFIG.get("knowledgeRoot", str(pathlib.Path.home() / ".dsh" / "sedna"))
 )
+
+# The model the planner route uses, named here so the choice is visible in one
+# place instead of being buried in the engine module's import-time constant.
+# Mirrors OllamaHost's own default when config.json stays silent.
+_DEFAULT_OLLAMA_MODEL = os.environ.get("SEDNA_OLLAMA_MODEL", "qwen3.6:latest")
 
 if SEDNA_SRC not in sys.path:
     sys.path.insert(0, SEDNA_SRC)
@@ -679,6 +684,70 @@ def op_ingest(args: dict) -> dict:
             pass
 
 
+def op_plan_next(args: dict) -> dict:
+    """Run the Sedna planner and return its proposals for one bound lane.
+
+    The planner is the one part of Sedna that needs a structured-completion host:
+    it asks a model to choose from an already-built candidate catalogue and
+    validates the answer against a closed schema. Here that host is the engine's
+    own ``OllamaHost`` adapter, configured by ``ollamaUrl``/``ollamaModel`` in
+    config.json -- so the planner runs without Hermes' ``ctx.llm``.
+
+    Two deliberate limits. ``writeup_authorization`` is never supplied: that
+    parameter is the only route by which planning may reach writeup material, and
+    leaving it unset keeps the default-deny rule intact. And the lane is explicit
+    rather than inferred -- this driver has no trusted runtime session context, so
+    a caller must supply its own identity and the journal's lane binding decides
+    whether planning is allowed at all.
+    """
+    from sedna.engagement.models import ExecutionLaneKey, HostKind
+    from sedna.knowledge.hades_runtime import HadesKnowledgeRuntime
+    from sedna.knowledge.semantic.ollama_host import OllamaHost
+
+    session_id = args.get("session_id")
+    if not session_id:
+        raise ValueError("plan_next requires a session_id (the calling lane's identity)")
+
+    max_proposals = int(args.get("max_proposals", 5))
+    if not 3 <= max_proposals <= 8:
+        raise ValueError("max_proposals must be between 3 and 8")
+
+    lane = ExecutionLaneKey.from_host(
+        host_kind=HostKind(str(args.get("host_kind", "other"))),
+        session_id=str(session_id),
+        task_id=args.get("task_id"),
+    )
+
+    host = OllamaHost(
+        model=str(args.get("model") or CONFIG.get("ollamaModel") or _DEFAULT_OLLAMA_MODEL)
+    )
+    runtime = HadesKnowledgeRuntime.create(host, KB_ROOT)
+    try:
+        result = runtime.planning.plan_next(lane, max_proposals=max_proposals)
+        try:
+            payload = result.model_dump(mode="json")
+        except Exception:
+            payload = json.loads(json.dumps(result, default=str))
+        gap = payload.get("knowledge_gap") if isinstance(payload, dict) else None
+        return {
+            "lane": {
+                "host_kind": str(lane.host_kind),
+                "session_id": _bounded(lane.session_id, 80),
+                "task_id": _bounded(lane.task_id, 80),
+            },
+            "max_proposals": max_proposals,
+            "knowledge_gap": (
+                None if gap is None else getattr(getattr(gap, "code", None), "value", gap)
+            ),
+            "result": payload,
+        }
+    finally:
+        try:
+            runtime.close()
+        except Exception:
+            pass
+
+
 OPERATIONS = {
     "retrieve": op_retrieve,
     "artifact": op_artifact,
@@ -686,6 +755,7 @@ OPERATIONS = {
     "ingest": op_ingest,
     "engagements": op_engagements,
     "record_decision": op_record_decision,
+    "plan_next": op_plan_next,
 }
 
 
